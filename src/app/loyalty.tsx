@@ -88,7 +88,7 @@ export default function LoyaltyScreen() {
 
             {/* Progress toward next free */}
             <View style={{ gap: 6, marginTop: 14 }}>
-              <View style={{ height: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexDirection: 'row' }}>
+              <View style={{ height: 10, borderRadius: 999, backgroundColor: COLORS.chip, overflow: 'hidden', flexDirection: 'row' }}>
                 <View style={{ width: `${Math.round(loyalty.freeProgress * 100)}%`, height: '100%', backgroundColor: COLORS.success, borderRadius: 999 }} />
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -115,6 +115,7 @@ export default function LoyaltyScreen() {
                   backgroundColor: `${COLORS.success}1f`,
                   borderWidth: 1,
                   borderColor: `${COLORS.success}66`,
+                  overflow: 'hidden',
                   opacity: pressed ? 0.7 : 1,
                 })}
               >

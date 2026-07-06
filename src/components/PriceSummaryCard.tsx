@@ -14,28 +14,91 @@ interface Props {
   accent?: string;
 }
 
+/**
+ * Booking summary card.
+ *
+ * Layout note: each row is two *flexible* columns (label + value), NOT a
+ * content-sized label next to a flex value. On Android a <Text> sized to its
+ * exact measured width gets its last glyph clipped ("Sport" -> "Spor"), so we
+ * give the label column real width (flex) — its box is always wider than the
+ * text, which eliminates the trailing-glyph clip entirely.
+ */
 export function PriceSummaryCard({ rows, total, accent = COLORS.neon }: Props) {
   return (
     <GlassCard accent={accent}>
-      <Text style={{ color: COLORS.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
+      <Text
+        style={{
+          color: COLORS.textMuted,
+          fontSize: 12,
+          fontWeight: '700',
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          marginBottom: 14,
+        }}
+      >
         Booking Summary
       </Text>
-      <View style={{ gap: 10 }}>
+
+      <View style={{ gap: 12 }}>
         {rows.map((r) => (
-          <View key={r.label} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{r.label}</Text>
-            <Text style={{ color: r.highlight ? accent : COLORS.text, fontSize: 14, fontWeight: '700', maxWidth: '60%', textAlign: 'right' }}>
+          <View
+            key={r.label}
+            style={{ flexDirection: 'row', alignItems: 'center' }}
+          >
+            {/* Label column — flexible & left-aligned so the box is always
+                wider than the text (prevents Android trailing-glyph clip). */}
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{
+                flex: 1,
+                color: COLORS.textMuted,
+                fontSize: 13,
+                paddingRight: 12,
+              }}
+            >
+              {r.label}
+            </Text>
+
+            {/* Value column — flexible & right-aligned. */}
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{
+                flex: 1,
+                color: r.highlight ? accent : COLORS.text,
+                fontSize: 14,
+                fontWeight: '700',
+                textAlign: 'right',
+              }}
+            >
               {r.value}
             </Text>
           </View>
         ))}
       </View>
 
-      <View style={{ height: 1, backgroundColor: COLORS.cardBorder, marginVertical: 14 }} />
+      <View
+        style={{
+          height: 1,
+          backgroundColor: COLORS.cardBorder,
+          marginVertical: 16,
+        }}
+      />
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: '700' }}>Total (display only)</Text>
-        <Text style={{ color: accent, fontSize: 22, fontWeight: '900' }}>{total}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text
+          numberOfLines={1}
+          style={{ flex: 1, color: COLORS.text, fontSize: 15, fontWeight: '700', paddingRight: 12 }}
+        >
+          Total (display only)
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={{ flex: 1, color: accent, fontSize: 22, fontWeight: '900', textAlign: 'right' }}
+        >
+          {total}
+        </Text>
       </View>
     </GlassCard>
   );

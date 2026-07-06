@@ -122,12 +122,12 @@ export function BookingCard({ booking, onCancel, cancelNote, onToggleNoShow }: P
                 alignItems: 'center',
                 gap: 6,
                 paddingHorizontal: 14,
-                paddingVertical: 8,
+                paddingVertical: 9,
                 borderRadius: 12,
-                borderWidth: 1,
-                borderColor: booking.noShow ? COLORS.cardBorder : COLORS.textFaint,
-                backgroundColor: booking.noShow ? 'rgba(255,255,255,0.06)' : '#000',
-                opacity: pressed ? 0.7 : 1,
+                overflow: 'hidden',
+                backgroundColor: booking.noShow
+                  ? (pressed ? COLORS.cardStrong : COLORS.chip)
+                  : (pressed ? '#1a1a1a' : '#000'),
               })}
             >
               <UserX size={14} color={COLORS.text} />
@@ -145,12 +145,10 @@ export function BookingCard({ booking, onCancel, cancelNote, onToggleNoShow }: P
                 alignItems: 'center',
                 gap: 6,
                 paddingHorizontal: 14,
-                paddingVertical: 8,
+                paddingVertical: 9,
                 borderRadius: 12,
-                borderWidth: 1,
-                borderColor: `${COLORS.danger}66`,
-                backgroundColor: `${COLORS.danger}1a`,
-                opacity: pressed ? 0.7 : 1,
+                overflow: 'hidden',
+                backgroundColor: pressed ? `${COLORS.danger}3d` : `${COLORS.danger}24`,
               })}
             >
               <X size={14} color={COLORS.danger} />

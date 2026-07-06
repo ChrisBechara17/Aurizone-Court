@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, Ban, CalendarRange, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react-native';
+import { ArrowLeft, Ban, CalendarRange, DollarSign, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
@@ -30,23 +30,27 @@ import {
 import { hasCourtConflict } from '@/utils/conflictUtils';
 import { parseISO } from 'date-fns';
 
-const ADMIN = COLORS.warning;
-
-const inputStyle = {
-  backgroundColor: 'rgba(255,255,255,0.05)',
-  borderWidth: 1,
-  borderColor: COLORS.cardBorder,
-  borderRadius: 14,
-  paddingHorizontal: 16,
-  paddingVertical: 14,
-  color: COLORS.text,
-  fontSize: 15,
-} as const;
+// Admin gold accent + input style are read live from the palette (inside the
+// component bodies) so the console follows the active light/dark theme.
+const inputStyleFor = () =>
+  ({
+    backgroundColor: COLORS.chip,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: COLORS.text,
+    fontSize: 15,
+  }) as const;
 
 export default function AdminScreen() {
+  const ADMIN = COLORS.warning;
+  const inputStyle = inputStyleFor();
   const router = useRouter();
   const user = useAppStore((s) => s.user);
   const bookings = useAppStore((s) => s.bookings);
+  const occupancy = useAppStore((s) => s.occupancy);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
   const cancelBooking = useAppStore((s) => s.cancelBooking);
   const toggleNoShow = useAppStore((s) => s.toggleNoShow);
@@ -57,6 +61,8 @@ export default function AdminScreen() {
   const updateCoach = useAppStore((s) => s.updateCoach);
   const removeCoach = useAppStore((s) => s.removeCoach);
   const users = useAppStore((s) => s.users);
+  const pricing = useAppStore((s) => s.pricing);
+  const updatePricing = useAppStore((s) => s.updatePricing);
 
   const [date, setDate] = useState<Date>(startOfDay(new Date()));
   const [time, setTime] = useState('12:00');
@@ -77,6 +83,34 @@ export default function AdminScreen() {
   const [cPhone, setCPhone] = useState('');
   const [coachError, setCoachError] = useState<string | null>(null);
   const [coachOk, setCoachOk] = useState<string | null>(null);
+
+  // Pricing form — seeded from the loaded rates, re-seeded when they change.
+  const [pBasket, setPBasket] = useState(String(pricing.basketball));
+  const [pHalf, setPHalf] = useState(String(pricing.basketballHalf));
+  const [pTennis, setPTennis] = useState(String(pricing.tennis));
+  const [pMachine, setPMachine] = useState(String(pricing.ballMachineRate));
+  const [priceErr, setPriceErr] = useState<string | null>(null);
+  const [priceOk, setPriceOk] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPBasket(String(pricing.basketball));
+    setPHalf(String(pricing.basketballHalf));
+    setPTennis(String(pricing.tennis));
+    setPMachine(String(pricing.ballMachineRate));
+  }, [pricing.basketball, pricing.basketballHalf, pricing.tennis, pricing.ballMachineRate]);
+
+  const onSavePricing = async () => {
+    setPriceErr(null);
+    setPriceOk(null);
+    const res = await updatePricing({
+      basketball: Number(pBasket) || 0,
+      basketballHalf: Number(pHalf) || 0,
+      tennis: Number(pTennis) || 0,
+      ballMachineRate: Number(pMachine) || 0,
+    });
+    if (!res.ok) return setPriceErr(res.error ?? 'Could not update pricing.');
+    setPriceOk('Pricing updated. New bookings use these rates.');
+  };
 
   const toggleSport = (s: SportType) =>
     setCSports((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -103,7 +137,7 @@ export default function AdminScreen() {
     setCoachOk(null);
   };
 
-  const onSaveCoach = () => {
+  const onSaveCoach = async () => {
     setCoachError(null);
     setCoachOk(null);
     const payload = {
@@ -113,7 +147,7 @@ export default function AdminScreen() {
       pricePerHour: Number(cPrice) || 0,
       phone: cPhone,
     };
-    const res = editingId ? updateCoach(editingId, payload) : addCoach(payload);
+    const res = editingId ? await updateCoach(editingId, payload) : await addCoach(payload);
     if (!res.ok) {
       setCoachError(res.error ?? 'Could not save coach.');
       return;
@@ -133,11 +167,11 @@ export default function AdminScreen() {
         const end = calculateEndTime(start, duration);
         return hasCourtConflict(
           { startTime: start.toISOString(), endTime: end.toISOString(), usesMainCourt: true },
-          bookings,
+          occupancy,
           courtBlocks,
         );
       }),
-    [date, duration, bookings, courtBlocks],
+    [date, duration, occupancy, courtBlocks],
   );
 
   // Bookings for the selected day, sorted by start time.
@@ -152,16 +186,16 @@ export default function AdminScreen() {
   const upcomingCount = bookings.filter(
     (b) => b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now(),
   ).length;
-  const userCount = users.length + 1; // + the demo account
+  const userCount = users.length;
 
-  const onBlock = () => {
+  const onBlock = async () => {
     setError(null);
     setOkMsg(null);
     if (!fitsWithinHours(time, duration)) {
       setError('That block would run past closing time (12:00 AM).');
       return;
     }
-    const res = addCourtBlock({ date, startTime: time, durationHours: duration, reason });
+    const res = await addCourtBlock({ date, startTime: time, durationHours: duration, reason });
     if (!res.ok) {
       setError(res.error ?? 'Could not block this time.');
       return;
@@ -279,6 +313,7 @@ export default function AdminScreen() {
                   borderWidth: 1,
                   borderColor: `${ADMIN}66`,
                   backgroundColor: `${ADMIN}1f`,
+                  overflow: 'hidden',
                   opacity: pressed ? 0.7 : 1,
                 })}
               >
@@ -297,7 +332,8 @@ export default function AdminScreen() {
                   borderRadius: 14,
                   borderWidth: 1,
                   borderColor: COLORS.cardBorder,
-                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  backgroundColor: COLORS.chip,
+                  overflow: 'hidden',
                   opacity: pressed ? 0.7 : 1,
                 })}
               >
@@ -306,6 +342,71 @@ export default function AdminScreen() {
               </Pressable>
             </View>
           </GlassCard>
+        </Animated.View>
+
+        {/* Pricing */}
+        <Animated.View entering={FadeInDown.delay(50).duration(350)} style={{ gap: 12 }}>
+          <SectionTitle text="Pricing" />
+          <SubLabel text="Hourly rates ($/hr) — applied to all new bookings" />
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1, gap: 8 }}>
+              <SubLabel text="Basketball" />
+              <TextInput
+                value={pBasket}
+                onChangeText={setPBasket}
+                placeholder="30"
+                keyboardType="number-pad"
+                placeholderTextColor={COLORS.textFaint}
+                style={inputStyle}
+              />
+            </View>
+            <View style={{ flex: 1, gap: 8 }}>
+              <SubLabel text="Tennis" />
+              <TextInput
+                value={pTennis}
+                onChangeText={setPTennis}
+                placeholder="20"
+                keyboardType="number-pad"
+                placeholderTextColor={COLORS.textFaint}
+                style={inputStyle}
+              />
+            </View>
+            <View style={{ flex: 1, gap: 8 }}>
+              <SubLabel text="Ball machine" />
+              <TextInput
+                value={pMachine}
+                onChangeText={setPMachine}
+                placeholder="15"
+                keyboardType="number-pad"
+                placeholderTextColor={COLORS.textFaint}
+                style={inputStyle}
+              />
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1, gap: 8 }}>
+              <SubLabel text="Basketball — half court" />
+              <TextInput
+                value={pHalf}
+                onChangeText={setPHalf}
+                placeholder="18"
+                keyboardType="number-pad"
+                placeholderTextColor={COLORS.textFaint}
+                style={inputStyle}
+              />
+            </View>
+            <View style={{ flex: 1 }} />
+          </View>
+          <ErrorBanner message={priceErr} />
+          {priceOk ? (
+            <Text style={{ color: COLORS.success, fontSize: 13, fontWeight: '600' }}>{priceOk}</Text>
+          ) : null}
+          <PrimaryGradientButton
+            label="Save Pricing"
+            icon={<DollarSign size={18} color="#05060f" />}
+            colors={[ADMIN, '#ffb020']}
+            onPress={onSavePricing}
+          />
         </Animated.View>
 
         {/* Block court time */}
@@ -324,7 +425,7 @@ export default function AdminScreen() {
             placeholder="e.g. Maintenance, private event"
             placeholderTextColor={COLORS.textFaint}
             style={{
-              backgroundColor: 'rgba(255,255,255,0.05)',
+              backgroundColor: COLORS.chip,
               borderWidth: 1,
               borderColor: COLORS.cardBorder,
               borderRadius: 14,
@@ -374,6 +475,7 @@ export default function AdminScreen() {
                         borderWidth: 1,
                         borderColor: `${COLORS.danger}66`,
                         backgroundColor: `${COLORS.danger}1a`,
+                        overflow: 'hidden',
                         opacity: pressed ? 0.7 : 1,
                       })}
                     >
@@ -508,6 +610,7 @@ export default function AdminScreen() {
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
+  const ADMIN = COLORS.warning;
   return (
     <View style={{ alignItems: 'center', flex: 1, paddingHorizontal: 2 }}>
       <Text numberOfLines={1} style={{ color: ADMIN, fontSize: 22, fontWeight: '900' }}>{value}</Text>
@@ -522,6 +625,7 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 function SectionTitle({ text }: { text: string }) {
+  const ADMIN = COLORS.warning;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <View style={{ width: 4, height: 16, borderRadius: 2, backgroundColor: ADMIN }} />

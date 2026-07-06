@@ -1,97 +1,131 @@
+import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ShieldCheck, Zap } from 'lucide-react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
+import { ErrorBanner } from '@/components/ErrorBanner';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
-import { isAdminContact } from '@/constants/admin';
 
-const schema = z.object({
-  name: z.string().min(2, 'Please enter your name'),
-  phoneOrEmail: z.string().min(5, 'Enter a phone number or email'),
-});
-type FormValues = z.infer<typeof schema>;
+interface FormValues {
+  name: string;
+  email: string;
+  password: string;
+}
 
 export default function Auth() {
   const router = useRouter();
+  const signUp = useAppStore((s) => s.signUp);
   const login = useAppStore((s) => s.login);
+  const resetPassword = useAppStore((s) => s.resetPassword);
+
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sendingReset, setSendingReset] = useState(false);
 
   const {
     control,
     handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: { name: '', phoneOrEmail: '' },
-  });
-
-  const goAfterLogin = (name: string, phoneOrEmail: string) => {
-    const admin = isAdminContact(phoneOrEmail) || isAdminContact(name);
-    router.replace('/(tabs)/home');
-    if (admin) router.push('/admin'); // admins land straight in the console
-  };
+    getValues,
+    formState: { isSubmitting },
+  } = useForm<FormValues>({ defaultValues: { name: '', email: '', password: '' } });
 
   const onSubmit = async (values: FormValues) => {
-    await login(values.name, values.phoneOrEmail);
-    goAfterLogin(values.name, values.phoneOrEmail);
+    setError(null);
+    setNotice(null);
+
+    if (!values.email.includes('@')) return setError('Enter a valid email address.');
+    if (values.password.length < 6) return setError('Password must be at least 6 characters.');
+    if (mode === 'signup' && values.name.trim().length < 2) return setError('Please enter your name.');
+
+    if (mode === 'signup') {
+      const res = await signUp(values.name, values.email, values.password);
+      if (!res.ok) return setError(res.error ?? 'Sign up failed.');
+      if (res.needsVerification) {
+        // Email confirmation is on — go verify the emailed 6-digit code.
+        router.push(
+          `/verify-otp?flow=signup&email=${encodeURIComponent(values.email.trim())}&name=${encodeURIComponent(
+            values.name.trim(),
+          )}`,
+        );
+      } else {
+        router.replace('/(tabs)/home');
+      }
+    } else {
+      const res = await login(values.email, values.password);
+      if (!res.ok) return setError(res.error ?? 'Login failed.');
+      router.replace('/(tabs)/home');
+    }
   };
 
-  const enterAsAdmin = async () => {
-    await login('Admin', 'admin@courthub.com');
-    goAfterLogin('Admin', 'admin@courthub.com');
+  const onForgotPassword = async () => {
+    if (sendingReset) return;
+    setError(null);
+    setNotice(null);
+    const email = getValues('email');
+    if (!email.includes('@')) return setError('Enter your email above first, then tap “Forgot password”.');
+    setSendingReset(true);
+    const res = await resetPassword(email).finally(() => setSendingReset(false));
+    if (!res.ok) return setError(res.error ?? 'Could not send reset email.');
+    router.push(`/verify-otp?flow=recovery&email=${encodeURIComponent(email.trim())}`);
   };
 
   return (
     <ScreenContainer>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 28 }}>
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 60, gap: 22 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Animated.View entering={FadeInDown.duration(500)} style={{ alignItems: 'center', gap: 14 }}>
-            <View
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 22,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: `${COLORS.neon}1f`,
-                borderWidth: 1.5,
-                borderColor: `${COLORS.neon}66`,
-              }}
-            >
-              <Zap size={36} color={COLORS.neon} />
-            </View>
-            <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>Welcome to CourtHub</Text>
+            <Image
+              source={require('../../assets/images/rizeon-mark.png')}
+              style={{ width: 88, height: 88 }}
+              resizeMode="contain"
+            />
+            <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>
+              {mode === 'signup' ? 'Create your account' : 'Welcome to RizeON'}
+            </Text>
             <Text style={{ color: COLORS.textMuted, fontSize: 14, textAlign: 'center' }}>
-              Sign in to book the Main Court. Demo only — no password needed.
+              {mode === 'signup' ? 'Sign up to book the Main Court.' : 'Sign in to book the Main Court.'}
             </Text>
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(150).duration(500)}>
             <GlassCard>
               <View style={{ gap: 18 }}>
-                <Field
-                  label="Full Name"
-                  placeholder="e.g. Alex Rivera"
-                  control={control}
-                  name="name"
-                  error={errors.name?.message}
-                />
-                <Field
-                  label="Phone or Email"
-                  placeholder="e.g. alex@email.com"
-                  control={control}
-                  name="phoneOrEmail"
-                  error={errors.phoneOrEmail?.message}
-                  keyboardType="email-address"
-                />
+                {mode === 'signup' ? (
+                  <Field label="Full Name" placeholder="e.g. Alex Rivera" control={control} name="name" autoCapitalize="words" />
+                ) : null}
+                <Field label="Email" placeholder="you@email.com" control={control} name="email" keyboardType="email-address" />
+                <Field label="Password" placeholder="At least 6 characters" control={control} name="password" isPassword />
+
+                {mode === 'login' ? (
+                  <Pressable
+                    onPress={onForgotPassword}
+                    disabled={sendingReset}
+                    hitSlop={8}
+                    style={{ alignSelf: 'flex-end', opacity: sendingReset ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: COLORS.neon, fontSize: 13, fontWeight: '700' }}>
+                      {sendingReset ? 'Sending reset code...' : 'Forgot password?'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                <ErrorBanner message={error} />
+                {notice ? (
+                  <Text style={{ color: COLORS.success, fontSize: 13, textAlign: 'center' }}>{notice}</Text>
+                ) : null}
+
                 <PrimaryGradientButton
-                  label="Enter CourtHub"
+                  label={mode === 'signup' ? 'Create Account' : 'Sign In'}
                   onPress={handleSubmit(onSubmit)}
                   loading={isSubmitting}
                 />
@@ -99,31 +133,20 @@ export default function Auth() {
             </GlassCard>
           </Animated.View>
 
-          {/* Demo admin shortcut */}
-          <Animated.View entering={FadeInDown.delay(250).duration(500)} style={{ alignItems: 'center', gap: 8 }}>
-            <Text style={{ color: COLORS.textFaint, fontSize: 12 }}>Demo access</Text>
-            <Pressable
-              onPress={enterAsAdmin}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                paddingVertical: 12,
-                paddingHorizontal: 18,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: `${COLORS.warning}66`,
-                backgroundColor: `${COLORS.warning}14`,
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <ShieldCheck size={16} color={COLORS.warning} />
-              <Text style={{ color: COLORS.warning, fontWeight: '800', fontSize: 14 }}>Enter as Demo Admin</Text>
-            </Pressable>
-            <Text style={{ color: COLORS.textFaint, fontSize: 11, textAlign: 'center' }}>
-              or sign in with email “admin@courthub.com”
+          <Pressable
+            onPress={() => {
+              setMode(mode === 'signup' ? 'login' : 'signup');
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            <Text style={{ color: COLORS.textMuted, fontSize: 14, textAlign: 'center' }}>
+              {mode === 'signup' ? 'Already have an account? ' : "Don't have an account? "}
+              <Text style={{ color: COLORS.neon, fontWeight: '800' }}>
+                {mode === 'signup' ? 'Sign in' : 'Sign up'}
+              </Text>
             </Text>
-          </Animated.View>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
@@ -135,45 +158,63 @@ function Field({
   placeholder,
   control,
   name,
-  error,
   keyboardType,
+  isPassword,
+  autoCapitalize = 'none',
 }: {
   label: string;
   placeholder: string;
   control: any;
   name: keyof FormValues;
-  error?: string;
   keyboardType?: 'default' | 'email-address';
+  isPassword?: boolean;
+  autoCapitalize?: 'none' | 'words';
 }) {
+  const [visible, setVisible] = useState(false);
+  const secure = !!isPassword && !visible;
+
   return (
     <View style={{ gap: 8 }}>
       <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '700' }}>{label}</Text>
-      <Controller
-        control={control}
-        name={name}
-        render={({ field: { value, onChange, onBlur } }) => (
-          <TextInput
-            value={value}
-            onChangeText={onChange}
-            onBlur={onBlur}
-            placeholder={placeholder}
-            placeholderTextColor={COLORS.textFaint}
-            keyboardType={keyboardType}
-            autoCapitalize={name === 'name' ? 'words' : 'none'}
-            style={{
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              borderWidth: 1,
-              borderColor: error ? `${COLORS.danger}88` : COLORS.cardBorder,
-              borderRadius: 14,
-              paddingHorizontal: 16,
-              paddingVertical: 14,
-              color: COLORS.text,
-              fontSize: 15,
-            }}
-          />
-        )}
-      />
-      {error ? <Text style={{ color: COLORS.danger, fontSize: 12 }}>{error}</Text> : null}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: COLORS.chip,
+          borderWidth: 1,
+          borderColor: COLORS.cardBorder,
+          borderRadius: 14,
+          paddingHorizontal: 16,
+        }}
+      >
+        <Controller
+          control={control}
+          name={name}
+          render={({ field: { value, onChange, onBlur } }) => (
+            <TextInput
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              placeholder={placeholder}
+              placeholderTextColor={COLORS.textFaint}
+              keyboardType={keyboardType}
+              secureTextEntry={secure}
+              autoCapitalize={autoCapitalize}
+              autoCorrect={false}
+              style={{ flex: 1, paddingVertical: 14, color: COLORS.text, fontSize: 15 }}
+            />
+          )}
+        />
+        {isPassword ? (
+          <Pressable onPress={() => setVisible((v) => !v)} hitSlop={10} style={{ paddingLeft: 10 }}>
+            {visible ? (
+              <EyeOff size={20} color={COLORS.textMuted} />
+            ) : (
+              <Eye size={20} color={COLORS.textMuted} />
+            )}
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }

@@ -8,6 +8,10 @@ export type SportType = 'basketball' | 'tennis';
 
 export type BookingType = 'court' | 'coach';
 
+/** Which part of the court a booking occupies. Basketball can book a half
+ *  ('a' = left, 'b' = right); tennis and everything else use 'full'. */
+export type CourtHalf = 'full' | 'a' | 'b';
+
 export type BookingStatus = 'confirmed' | 'cancelled' | 'completed';
 
 export interface User {
@@ -29,6 +33,15 @@ export interface SportPrice {
   pricePerHour: number;
 }
 
+/** Admin-configurable pricing, loaded from Supabase (sport_prices + app_settings). */
+export interface Pricing {
+  basketball: number;
+  /** Half-court basketball rate ($/hr). */
+  basketballHalf: number;
+  tennis: number;
+  ballMachineRate: number;
+}
+
 export interface Coach {
   id: string;
   name: string;
@@ -48,6 +61,8 @@ export interface Booking {
   courtId: string | null;
   coachId: string | null;
   usesMainCourt: boolean;
+  /** 'full' (default), or 'a'/'b' for a half-court basketball booking. */
+  courtHalf?: CourtHalf;
   startTime: string; // ISO 8601
   endTime: string; // ISO 8601
   durationMinutes: number;

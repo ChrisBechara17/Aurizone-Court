@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { CalendarCheck, CalendarRange, Gift, Repeat, Rocket } from 'lucide-react-native';
+import { CalendarCheck, CalendarRange, Gift, Rocket, Users } from 'lucide-react-native';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { SportModeCard } from '@/components/SportModeCard';
@@ -13,10 +13,10 @@ import { PriceSummaryCard } from '@/components/PriceSummaryCard';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ErrorBanner } from '@/components/ErrorBanner';
+import { Toggle } from '@/components/Toggle';
 import { COLORS, sportAccent } from '@/constants/colors';
-import { BALL_MACHINE_RATE, getSportPrice, REPEAT_OPTIONS } from '@/constants/prices';
 import { SportType } from '@/models';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { CreateResult } from '@/services/bookingService';
 import {
   calculateEndTime,
@@ -28,38 +28,42 @@ import {
   startOfDay,
   timeSlots,
 } from '@/utils/dateUtils';
-import { hasCourtConflict } from '@/utils/conflictUtils';
+import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
 import { computeLoyalty } from '@/utils/loyalty';
 import { computeStanding, hasReachedBookingLimit } from '@/utils/accountStanding';
 
 export default function BookScreen() {
+  useThemeName();
   const router = useRouter();
   const params = useLocalSearchParams<{ sport?: string }>();
   const bookCourt = useAppStore((s) => s.bookCourt);
   const user = useAppStore((s) => s.user);
-  const bookings = useAppStore((s) => s.bookings); // all bookings — for court conflicts
-  const myBookings = bookings.filter((b) => b.userId === (user?.id ?? 'demo-user'));
+  const bookings = useAppStore((s) => s.bookings); // the user's own bookings
+  const occupancy = useAppStore((s) => s.occupancy); // everyone's busy slots (times only)
+  const myBookings = bookings.filter((b) => b.userId === user?.id);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
+  const pricing = useAppStore((s) => s.pricing); // admin-set rates
 
-  const initialSport: SportType = params.sport === 'tennis' ? 'tennis' : 'basketball';
+  // Primary sport is tennis; basketball only when explicitly requested.
+  const initialSport: SportType = params.sport === 'basketball' ? 'basketball' : 'tennis';
   const [sport, setSport] = useState<SportType>(initialSport);
   const [date, setDate] = useState<Date>(startOfDay(new Date()));
   const [time, setTime] = useState('18:00');
   const [duration, setDuration] = useState(1);
-  const [repeat, setRepeat] = useState(false);
-  const [repeatCount, setRepeatCount] = useState<number>(4);
   const [useFree, setUseFree] = useState(false);
   const [ballMachine, setBallMachine] = useState(false);
+  const [halfCourt, setHalfCourt] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResult | null>(null);
 
   // Ball machine is a tennis-only paid add-on.
   const machineActive = sport === 'tennis' && ballMachine;
+  // Half court is a basketball-only option (leaves the other half free for others).
+  const half = sport === 'basketball' && halfCourt;
 
   const loyalty = computeLoyalty(myBookings);
-  // A free reward applies to a single booking, so it's unavailable while repeating.
-  const freeRedeemable = loyalty.availableFree > 0 && !repeat;
+  const freeRedeemable = loyalty.availableFree > 0;
   const isFree = useFree && freeRedeemable;
 
   // Booking policy: disabled accounts and the one-active-booking limit (per user).
@@ -72,45 +76,58 @@ export default function BookScreen() {
       : null;
 
   const accent = sportAccent(sport);
-  const price = getSportPrice(sport);
+  const price = half ? pricing.basketballHalf : sport === 'basketball' ? pricing.basketball : pricing.tennis;
 
   // Compute unavailable start times for the chosen date + duration.
-  // A slot is unavailable if it conflicts OR the session would run past closing.
+  // Full/tennis needs the whole court free; a half booking just needs one side.
   const unavailable = useMemo(() => {
     return timeSlots().filter((slot) => {
       if (!fitsWithinHours(slot, duration)) return true;
-      const start = combineDateAndTime(date, slot);
-      const end = calculateEndTime(start, duration);
+      const start = combineDateAndTime(date, slot).toISOString();
+      const end = calculateEndTime(combineDateAndTime(date, slot), duration).toISOString();
+      if (half) {
+        return availableHalfSide(start, end, occupancy, courtBlocks) === null;
+      }
       return hasCourtConflict(
-        { startTime: start.toISOString(), endTime: end.toISOString(), usesMainCourt: true },
-        bookings,
+        { startTime: start, endTime: end, usesMainCourt: true, courtHalf: 'full' },
+        occupancy,
         courtBlocks,
       );
     });
-  }, [date, duration, bookings, courtBlocks]);
+  }, [date, duration, occupancy, courtBlocks, half]);
 
   const start = combineDateAndTime(date, time);
   const end = calculateEndTime(start, duration);
-  const machineCost = machineActive ? BALL_MACHINE_RATE * duration : 0;
+  const machineCost = machineActive ? pricing.ballMachineRate * duration : 0;
   // Free reward covers the court; the ball-machine add-on is still charged.
   const total = isFree ? machineCost : price * duration + machineCost;
 
-  const onConfirm = () => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const onConfirm = async () => {
     setError(null);
+    // Policy checks only surface when the user actually tries to book.
+    if (blockReason) {
+      setError(blockReason);
+      return;
+    }
     if (!fitsWithinHours(time, duration)) {
       setError('This session would run past closing time (12:00 AM). Pick an earlier start or shorter duration.');
       return;
     }
-    const res = bookCourt({
+    setSubmitting(true);
+    const res = await bookCourt({
       sportType: sport,
       date,
       startTime: time,
       durationHours: duration,
-      repeatWeekly: repeat,
-      repeatCount: repeat ? repeatCount : 1,
+      repeatWeekly: false,
+      repeatCount: 1,
       useFreeSession: isFree,
       ballMachine: machineActive,
+      halfCourt: half,
     });
+    setSubmitting(false);
     if (!res.ok && res.created.length === 0) {
       setError(res.error ?? 'This slot is unavailable.');
       return;
@@ -120,26 +137,29 @@ export default function BookScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120, gap: 18 }} showsVerticalScrollIndicator={false}>
-        <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>Book the Court</Text>
+      {/* No horizontal padding — each section adds its own 20px so the sport cards
+          can go edge-to-edge (a negative margin would be clipped on Android). */}
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: 120, gap: 18 }} showsVerticalScrollIndicator={false}>
+        <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900', paddingHorizontal: 20 }}>Book the Court</Text>
 
-        {/* Sport selection */}
-        <View style={{ gap: 10 }}>
+        {/* Sport selection — full-bleed so the two cards reach the screen edges,
+            splitting 50/50 at the center. */}
+        <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <Label text="Select Sport" />
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <SportModeCard sport="basketball" selected={sport === 'basketball'} onPress={() => setSport('basketball')} />
+          <View style={{ gap: 12 }}>
             <SportModeCard sport="tennis" selected={sport === 'tennis'} onPress={() => setSport('tennis')} />
+            <SportModeCard sport="basketball" selected={sport === 'basketball'} onPress={() => setSport('basketball')} />
           </View>
         </View>
 
         {/* Court */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <Label text="Court" />
           <MainCourtCard activeSport={sport} />
         </View>
 
         {/* Date */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Label text="Select Date" />
             <Pressable
@@ -155,91 +175,65 @@ export default function BookScreen() {
         </View>
 
         {/* Time */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <Label text="Start Time" />
           <TimeSlotPicker value={time} onChange={setTime} accent={accent} unavailable={unavailable} />
           {unavailable.includes(time) ? (
-            <ErrorBanner message="This slot is unavailable because basketball and tennis share the same court." />
+            <ErrorBanner
+              message={
+                half
+                  ? 'Both halves of the court are booked at this time.'
+                  : 'This slot is unavailable because basketball and tennis share the same court.'
+              }
+            />
           ) : null}
         </View>
 
         {/* Duration */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <Label text="Duration" />
           <DurationSelector value={duration} onChange={setDuration} accent={accent} />
         </View>
 
+        {/* Half court — basketball only (share the court with another group) */}
+        {sport === 'basketball' ? (
+          <GlassCard accent={half ? COLORS.basketball : undefined} style={{ marginHorizontal: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <Users size={20} color={COLORS.basketball} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 15 }}>Half court 🏀</Text>
+                  <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
+                    Share the court — another group can book the other half · ${pricing.basketballHalf}/hr
+                  </Text>
+                </View>
+              </View>
+              <Toggle value={halfCourt} onValueChange={setHalfCourt} activeColor={COLORS.basketball} />
+            </View>
+          </GlassCard>
+        ) : null}
+
         {/* Ball machine — tennis only */}
         {sport === 'tennis' ? (
-          <GlassCard accent={machineActive ? COLORS.tennis : undefined}>
+          <GlassCard accent={machineActive ? COLORS.tennis : undefined} style={{ marginHorizontal: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                 <Rocket size={20} color={COLORS.tennis} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 15 }}>Ball Machine 🎾</Text>
                   <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                    Automatic ball launcher · +${BALL_MACHINE_RATE}/hr
+                    Automatic ball launcher · +${pricing.ballMachineRate}/hr
                   </Text>
                 </View>
               </View>
-              <Switch
-                value={ballMachine}
-                onValueChange={setBallMachine}
-                trackColor={{ false: COLORS.cardBorder, true: `${COLORS.tennis}88` }}
-                thumbColor={ballMachine ? COLORS.tennis : '#888'}
-              />
+              <Toggle value={ballMachine} onValueChange={setBallMachine} activeColor={COLORS.tennis} />
             </View>
           </GlassCard>
         ) : null}
 
-        {/* Repeat weekly */}
-        <GlassCard>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Repeat size={20} color={COLORS.neon} />
-              <View>
-                <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 15 }}>Repeat Weekly</Text>
-                <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>Same slot, every week</Text>
-              </View>
-            </View>
-            <Switch
-              value={repeat}
-              onValueChange={(v) => {
-                setRepeat(v);
-                if (v) setUseFree(false); // free reward applies to single bookings only
-              }}
-              trackColor={{ false: COLORS.cardBorder, true: `${COLORS.neon}88` }}
-              thumbColor={repeat ? COLORS.neon : '#888'}
-            />
-          </View>
-          {repeat ? (
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              {REPEAT_OPTIONS.map((w) => {
-                const active = repeatCount === w;
-                return (
-                  <Pressable key={w} onPress={() => setRepeatCount(w)} style={{ flex: 1 }}>
-                    <View
-                      style={{
-                        paddingVertical: 12,
-                        borderRadius: 14,
-                        alignItems: 'center',
-                        backgroundColor: active ? `${COLORS.neon}26` : 'rgba(255,255,255,0.04)',
-                        borderWidth: 1.5,
-                        borderColor: active ? COLORS.neon : COLORS.cardBorder,
-                      }}
-                    >
-                      <Text style={{ color: active ? COLORS.neon : COLORS.text, fontWeight: '800' }}>{w} wks</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
-        </GlassCard>
-
         {/* Redeem a free session (loyalty reward) */}
         {loyalty.availableFree > 0 ? (
-          <GlassCard accent={isFree ? COLORS.success : undefined}>
+          <GlassCard accent={isFree ? COLORS.success : undefined} style={{ marginHorizontal: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                 <Gift size={20} color={COLORS.success} />
@@ -247,56 +241,49 @@ export default function BookScreen() {
                   <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 15 }}>Use a free session 🎁</Text>
                   <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
                     {loyalty.availableFree} reward{loyalty.availableFree > 1 ? 's' : ''} available
-                    {repeat ? ' · not available with weekly repeat' : ''}
                   </Text>
                 </View>
               </View>
-              <Switch
+              <Toggle
                 value={isFree}
                 onValueChange={setUseFree}
                 disabled={!freeRedeemable}
-                trackColor={{ false: COLORS.cardBorder, true: `${COLORS.success}88` }}
-                thumbColor={isFree ? COLORS.success : '#888'}
+                activeColor={COLORS.success}
               />
             </View>
           </GlassCard>
         ) : null}
 
         {/* Summary */}
+        <View style={{ paddingHorizontal: 20, gap: 18 }}>
         <PriceSummaryCard
           accent={isFree ? COLORS.success : accent}
           rows={[
             { label: 'Sport', value: sport === 'basketball' ? 'Basketball' : 'Tennis', highlight: true },
-            { label: 'Court', value: 'Main Court' },
+            { label: 'Court', value: half ? 'Half court (shared)' : 'Main Court', highlight: half },
             { label: 'Date', value: fmtDate(start) },
             { label: 'Start time', value: fmtTime(start) },
             { label: 'End time', value: fmtTime(end) },
             { label: 'Duration', value: formatDuration(duration) },
             { label: 'Price per hour', value: `$${price}` },
             ...(machineActive
-              ? [{ label: 'Ball machine', value: `+$${BALL_MACHINE_RATE}/hr`, highlight: true }]
+              ? [{ label: 'Ball machine', value: `+$${pricing.ballMachineRate}/hr`, highlight: true }]
               : []),
-            { label: 'Repeat weekly', value: repeat ? `Yes · ${repeatCount} weeks` : 'No' },
             ...(isFree ? [{ label: 'Reward applied', value: 'Free court 🎁', highlight: true }] : []),
           ]}
-          total={
-            isFree && total === 0
-              ? 'FREE 🎁'
-              : repeat
-                ? `$${total} / session`
-                : `$${total}`
-          }
+          total={isFree && total === 0 ? 'FREE 🎁' : `$${total}`}
         />
 
-        <ErrorBanner message={blockReason ?? error} />
+        <ErrorBanner message={error} />
 
         <PrimaryGradientButton
           label="Confirm Booking"
           icon={<CalendarCheck size={18} color="#05060f" />}
           colors={[accent, accent]}
           onPress={onConfirm}
-          disabled={!!blockReason}
+          loading={submitting}
         />
+        </View>
       </ScrollView>
 
       {/* Success modal */}
@@ -304,39 +291,13 @@ export default function BookScreen() {
         visible={!!result}
         accent={accent}
         title="Booking Confirmed!"
-        message={
-          result && result.created.length > 1
-            ? `${result.created.length} weekly sessions booked on the Main Court.`
-            : 'Your Main Court slot is locked in. See you on court!'
-        }
+        message="Your Main Court slot is locked in. See you on court!"
         confirmLabel="View My Bookings"
         onClose={() => {
           setResult(null);
           router.push('/(tabs)/bookings');
         }}
-      >
-        {result && result.blocked.length > 0 ? (
-          <View
-            style={{
-              backgroundColor: `${COLORS.warning}14`,
-              borderColor: `${COLORS.warning}55`,
-              borderWidth: 1,
-              borderRadius: 14,
-              padding: 12,
-              gap: 4,
-            }}
-          >
-            <Text style={{ color: COLORS.warning, fontWeight: '700', fontSize: 13 }}>
-              {result.blocked.length} date(s) were unavailable and skipped:
-            </Text>
-            {result.blocked.map((b, i) => (
-              <Text key={i} style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                • {fmtDate(b.startTime)} at {fmtTime(b.startTime)}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-      </ConfirmationModal>
+      />
     </ScreenContainer>
   );
 }

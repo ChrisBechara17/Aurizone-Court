@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,18 +8,15 @@ import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
 import { computeLoyalty } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
-import { buildRoster, bookingsFor } from '@/utils/adminUsers';
+import { bookingsFor } from '@/utils/adminUsers';
 import { parseISO } from 'date-fns';
 
-const ADMIN = COLORS.warning;
-
 export default function AdminUsersScreen() {
+  const ADMIN = COLORS.warning; // read live so it follows the active theme
   const router = useRouter();
   const user = useAppStore((s) => s.user);
-  const users = useAppStore((s) => s.users);
+  const roster = useAppStore((s) => s.users);
   const bookings = useAppStore((s) => s.bookings);
-
-  const roster = useMemo(() => buildRoster(users, user), [users, user]);
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
 

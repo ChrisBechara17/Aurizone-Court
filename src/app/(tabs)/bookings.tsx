@@ -6,7 +6,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { BookingCard } from '@/components/BookingCard';
 import { EmptyState } from '@/components/EmptyState';
 import { COLORS } from '@/constants/colors';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { CANCEL_CUTOFF_HOURS, canUserCancel } from '@/utils/accountStanding';
 import { parseISO } from 'date-fns';
 
@@ -18,6 +18,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 export default function BookingsScreen() {
+  useThemeName();
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
   const cancel = useAppStore((s) => s.cancelBooking);
@@ -44,11 +45,12 @@ export default function BookingsScreen() {
           <View
             style={{
               flexDirection: 'row',
-              backgroundColor: COLORS.card,
-              borderRadius: 16,
+              backgroundColor: COLORS.chip,
+              borderRadius: 18,
+              padding: 5,
+              gap: 5,
               borderWidth: 1,
               borderColor: COLORS.cardBorder,
-              padding: 4,
             }}
           >
             {FILTERS.map((f) => {
@@ -58,12 +60,20 @@ export default function BookingsScreen() {
                   <View
                     style={{
                       paddingVertical: 10,
-                      borderRadius: 12,
+                      borderRadius: 14,
                       alignItems: 'center',
-                      backgroundColor: active ? `${COLORS.neon}26` : 'transparent',
+                      backgroundColor: active ? `${COLORS.neon}22` : 'transparent',
+                      borderWidth: 1.5,
+                      borderColor: active ? `${COLORS.neon}99` : 'transparent',
                     }}
                   >
-                    <Text style={{ color: active ? COLORS.neon : COLORS.textMuted, fontWeight: '700', fontSize: 13 }}>
+                    <Text
+                      style={{
+                        color: active ? COLORS.neon : COLORS.textMuted,
+                        fontWeight: active ? '800' : '600',
+                        fontSize: 13,
+                      }}
+                    >
                       {f.label}
                     </Text>
                   </View>

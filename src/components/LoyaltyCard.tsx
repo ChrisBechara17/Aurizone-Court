@@ -17,7 +17,7 @@ export function LoyaltyCard({ loyalty, onPress }: Props) {
   return (
     <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ transform: [{ scale: pressed && onPress ? 0.99 : 1 }] })}>
       <LinearGradient
-        colors={[`${accent}2e`, 'rgba(255,255,255,0.04)']}
+        colors={[`${accent}2e`, COLORS.glassEdge]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{
@@ -43,7 +43,7 @@ export function LoyaltyCard({ loyalty, onPress }: Props) {
               <Sparkles size={22} color={accent} />
             </View>
             <View>
-              <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>CourtHub Rewards</Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>RizeON Rewards</Text>
               <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 17 }}>{tier.name} Member</Text>
             </View>
           </View>
@@ -55,7 +55,7 @@ export function LoyaltyCard({ loyalty, onPress }: Props) {
 
         {/* Progress */}
         <View style={{ gap: 6 }}>
-          <View style={{ height: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <View style={{ height: 8, borderRadius: 999, backgroundColor: COLORS.chip, overflow: 'hidden' }}>
             <View style={{ width: `${Math.round(progress * 100)}%`, height: '100%', backgroundColor: accent, borderRadius: 999 }} />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>

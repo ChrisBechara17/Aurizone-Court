@@ -89,12 +89,10 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
                   alignItems: 'center',
                   gap: 6,
                   paddingHorizontal: 14,
-                  paddingVertical: 8,
+                  paddingVertical: 9,
                   borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: `${COLORS.coach}66`,
-                  backgroundColor: `${COLORS.coach}1a`,
-                  opacity: pressed ? 0.7 : 1,
+                  overflow: 'hidden',
+                  backgroundColor: pressed ? `${COLORS.coach}3d` : `${COLORS.coach}24`,
                 })}
               >
                 <Pencil size={13} color={COLORS.coach} />
@@ -106,12 +104,10 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
                 onPress={() => onRemove(coach.id)}
                 style={({ pressed }) => ({
                   paddingHorizontal: 14,
-                  paddingVertical: 8,
+                  paddingVertical: 9,
                   borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: `${COLORS.danger}66`,
-                  backgroundColor: `${COLORS.danger}1a`,
-                  opacity: pressed ? 0.7 : 1,
+                  overflow: 'hidden',
+                  backgroundColor: pressed ? `${COLORS.danger}3d` : `${COLORS.danger}24`,
                 })}
               >
                 <Text style={{ color: COLORS.danger, fontWeight: '700', fontSize: 13 }}>Remove</Text>
@@ -126,12 +122,10 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
               alignItems: 'center',
               gap: 6,
               paddingHorizontal: 16,
-              paddingVertical: 8,
+              paddingVertical: 9,
               borderRadius: 12,
-              backgroundColor: `${COLORS.coach}26`,
-              borderWidth: 1,
-              borderColor: `${COLORS.coach}66`,
-              opacity: pressed ? 0.7 : 1,
+              overflow: 'hidden',
+              backgroundColor: pressed ? `${COLORS.coach}45` : `${COLORS.coach}2e`,
             })}
           >
             <Phone size={14} color={COLORS.coach} />

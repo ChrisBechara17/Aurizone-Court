@@ -51,7 +51,7 @@ export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavaila
       <View
         style={{
           flexDirection: 'row',
-          backgroundColor: 'rgba(255,255,255,0.04)',
+          backgroundColor: COLORS.chip,
           borderRadius: 20,
           borderWidth: 1,
           borderColor: COLORS.cardBorder,

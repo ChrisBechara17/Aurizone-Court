@@ -12,6 +12,10 @@ export const getSportPrice = (sport: SportType): number =>
 // Tennis-only add-on: automatic ball machine (ball launcher), charged per hour.
 export const BALL_MACHINE_RATE = 15;
 
+// Basketball half-court rate ($/hr). Fallback only — the live value is admin-set
+// (app_settings.basketball_half_rate) and the server recomputes total_price.
+export const BASKETBALL_HALF_RATE = 18;
+
 // Business constraints.
 // Bookings longer than 3h are not allowed; ≤3h auto-confirm.
 export const MAX_DURATION_HOURS = 3;

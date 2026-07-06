@@ -12,12 +12,11 @@ import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
 import { computeLoyalty } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
-import { buildRoster, bookingsFor } from '@/utils/adminUsers';
+import { bookingsFor } from '@/utils/adminUsers';
 import { parseISO } from 'date-fns';
 
-const ADMIN = COLORS.warning;
-
 export default function AdminUserScreen() {
+  const ADMIN = COLORS.warning; // read live so it follows the active theme
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const user = useAppStore((s) => s.user);
@@ -26,8 +25,7 @@ export default function AdminUserScreen() {
   const cancelBooking = useAppStore((s) => s.cancelBooking);
   const toggleNoShow = useAppStore((s) => s.toggleNoShow);
 
-  const roster = useMemo(() => buildRoster(users, user), [users, user]);
-  const target = roster.find((u) => u.id === id);
+  const target = users.find((u) => u.id === id);
 
   const userBookings = useMemo(
     () =>
@@ -173,6 +171,7 @@ export default function AdminUserScreen() {
 }
 
 function SectionTitle({ text }: { text: string }) {
+  const ADMIN = COLORS.warning;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <View style={{ width: 4, height: 16, borderRadius: 2, backgroundColor: ADMIN }} />

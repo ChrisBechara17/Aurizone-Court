@@ -7,7 +7,7 @@ import { CoachCard } from '@/components/CoachCard';
 import { EmptyState } from '@/components/EmptyState';
 import { COLORS } from '@/constants/colors';
 import { SportType } from '@/models';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, useThemeName } from '@/store/useAppStore';
 
 type Filter = 'all' | SportType;
 const FILTERS: { key: Filter; label: string }[] = [
@@ -17,6 +17,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 export default function CoachesScreen() {
+  useThemeName();
   const coaches = useAppStore((s) => s.coaches);
   const [filter, setFilter] = useState<Filter>('all');
 
@@ -42,7 +43,7 @@ export default function CoachesScreen() {
             backgroundColor: `${COLORS.coach}14`,
             borderColor: `${COLORS.coach}44`,
             borderWidth: 1,
-            borderRadius: 16,
+            borderRadius: 18,
             padding: 14,
           }}
         >
@@ -57,11 +58,12 @@ export default function CoachesScreen() {
         <View
           style={{
             flexDirection: 'row',
-            backgroundColor: COLORS.card,
+            backgroundColor: COLORS.chip,
             borderRadius: 16,
+            padding: 5,
+            gap: 5,
             borderWidth: 1,
             borderColor: COLORS.cardBorder,
-            padding: 4,
           }}
         >
           {FILTERS.map((f) => {
@@ -71,12 +73,14 @@ export default function CoachesScreen() {
                 <View
                   style={{
                     paddingVertical: 10,
-                    borderRadius: 12,
+                    borderRadius: 14,
                     alignItems: 'center',
                     backgroundColor: isActive ? `${COLORS.coach}26` : 'transparent',
+                    borderWidth: 1.5,
+                    borderColor: isActive ? `${COLORS.coach}99` : 'transparent',
                   }}
                 >
-                  <Text style={{ color: isActive ? COLORS.coach : COLORS.textMuted, fontWeight: '700', fontSize: 13 }}>
+                  <Text style={{ color: isActive ? COLORS.coach : COLORS.textMuted, fontWeight: isActive ? '800' : '700', fontSize: 13 }}>
                     {f.label}
                   </Text>
                 </View>

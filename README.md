@@ -1,4 +1,4 @@
-# CourtHub — Mobile (React Native + Expo)
+# RizeON — Mobile (React Native + Expo)
 
 A futuristic, dark-mode mobile app for booking a single **shared physical court**
 ("Main Court") for **basketball** or **tennis**, plus coaches and weekly repeats.
@@ -30,7 +30,7 @@ Requires the **Expo Go** app on your phone, or an Android/iOS simulator.
 
 ## The one critical rule
 
-There is **one** physical court. Basketball and tennis are just *modes* that change
+There is **one** physical court. Basketball and tennis are just _modes_ that change
 the price ($30/hr vs $20/hr). A confirmed booking in either sport blocks the Main
 Court for **both**. This is enforced in `src/utils/conflictUtils.ts` →
 `hasCourtConflict`, which ignores sport entirely and only checks the shared court.
@@ -83,4 +83,9 @@ functions mirror the SQL you'd run server-side with a Redis lock around the slot
 - On a note about storage: AsyncStorage is used (more reliable than a raw `.db`
   file in Expo Go and dependency-free). The `storageService` abstraction means you
   could swap in `expo-sqlite` or the real API later without touching the UI.
+
+```
+
+
+
 ```

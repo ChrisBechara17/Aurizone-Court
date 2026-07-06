@@ -20,14 +20,16 @@ import { BookingCard } from '@/components/BookingCard';
 import { EmptyState } from '@/components/EmptyState';
 import { LoyaltyCard } from '@/components/LoyaltyCard';
 import { COLORS } from '@/constants/colors';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { computeLoyalty } from '@/utils/loyalty';
 import { parseISO } from 'date-fns';
 
 export default function HomeScreen() {
+  useThemeName();
   const router = useRouter();
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
+  const pricing = useAppStore((s) => s.pricing);
   const bookings = allBookings.filter((b) => b.userId === (user?.id ?? 'demo-user'));
   const loyalty = computeLoyalty(bookings);
 
@@ -38,9 +40,11 @@ export default function HomeScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 110, gap: 18 }} showsVerticalScrollIndicator={false}>
+      {/* No horizontal padding here — sections add their own 20px so the Quick
+          Actions cards can go edge-to-edge without a (clipped-on-Android) negative margin. */}
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: 110, gap: 18 }} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <Animated.View entering={FadeInDown.duration(400)}>
+        <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 20 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View>
               <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>Welcome back,</Text>
@@ -69,7 +73,7 @@ export default function HomeScreen() {
 
         {/* Admin banner (admins only) */}
         {user?.isAdmin ? (
-          <Animated.View entering={FadeInDown.delay(40).duration(400)}>
+          <Animated.View entering={FadeInDown.delay(40).duration(400)} style={{ paddingHorizontal: 20 }}>
             <Pressable onPress={() => router.push('/admin')} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.99 : 1 }] })}>
               <LinearGradient
                 colors={[COLORS.warning, '#ff9d2f']}
@@ -98,18 +102,18 @@ export default function HomeScreen() {
         ) : null}
 
         {/* Shared court badge */}
-        <Animated.View entering={FadeInDown.delay(80).duration(400)}>
+        <Animated.View entering={FadeInDown.delay(80).duration(400)} style={{ paddingHorizontal: 20 }}>
           <MainCourtCard />
         </Animated.View>
 
         {/* Loyalty / rewards */}
-        <Animated.View entering={FadeInDown.delay(110).duration(400)} style={{ gap: 10 }}>
-          <SectionTitle title="CourtHub Rewards" />
+        <Animated.View entering={FadeInDown.delay(110).duration(400)} style={{ gap: 10, paddingHorizontal: 20 }}>
+          <SectionTitle title="RizeON Rewards" />
           <LoyaltyCard loyalty={loyalty} onPress={() => router.push('/loyalty')} />
         </Animated.View>
 
         {/* Upcoming booking */}
-        <Animated.View entering={FadeInDown.delay(140).duration(400)} style={{ gap: 10 }}>
+        <Animated.View entering={FadeInDown.delay(140).duration(400)} style={{ gap: 10, paddingHorizontal: 20 }}>
           <SectionTitle title="Upcoming Booking" />
           {nextBooking ? (
             <BookingCard booking={nextBooking} />
@@ -126,36 +130,42 @@ export default function HomeScreen() {
 
         {/* Quick actions */}
         <Animated.View entering={FadeInDown.delay(200).duration(400)} style={{ gap: 10 }}>
-          <SectionTitle title="Quick Actions" />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-            <QuickAction
-              label="Book Basketball"
-              sub="$30/hr"
-              accent={COLORS.basketball}
-              icon={<BasketballIcon size={24} color={COLORS.basketball} />}
-              onPress={() => router.push('/book?sport=basketball')}
-            />
-            <QuickAction
-              label="Book Tennis"
-              sub="$20/hr"
-              accent={COLORS.tennis}
-              icon={<TennisIcon size={24} color={COLORS.tennis} />}
-              onPress={() => router.push('/book?sport=tennis')}
-            />
-            <QuickAction
-              label="Our Coaches"
-              sub="View & contact"
-              accent={COLORS.coach}
-              icon={<Megaphone size={24} color={COLORS.coach} />}
-              onPress={() => router.push('/coaches')}
-            />
-            <QuickAction
-              label="Court Schedule"
-              sub="See availability"
-              accent={COLORS.neon}
-              icon={<CalendarRange size={24} color={COLORS.neon} />}
-              onPress={() => router.push('/availability')}
-            />
+          <View style={{ paddingHorizontal: 20 }}>
+            <SectionTitle title="Quick Actions" />
+          </View>
+          {/* Full-bleed cards: the ScrollView has no horizontal padding, so this
+              container spans the whole screen. Each pair splits 50/50 at center. */}
+          <View style={{ gap: 12, paddingHorizontal: 20 }}>
+              <QuickAction
+                label="Book Tennis"
+                sub={`$${pricing.tennis}/hr`}
+                accent={COLORS.tennis}
+                icon={<TennisIcon size={24} color={COLORS.tennis} />}
+                onPress={() => router.push('/book?sport=tennis')}
+              />
+              <QuickAction
+                label="Book Basketball"
+                sub={`$${pricing.basketball}/hr`}
+                accent={COLORS.basketball}
+                icon={<BasketballIcon size={24} color={COLORS.basketball} />}
+                onPress={() => router.push('/book?sport=basketball')}
+              />
+            {/* Row 2 — Coaches | Court Schedule (50/50) */}
+              <QuickAction
+                label="Our Coaches"
+                sub="View & contact"
+                accent={COLORS.coach}
+                icon={<Megaphone size={24} color={COLORS.coach} />}
+                onPress={() => router.push('/coaches')}
+              />
+              <QuickAction
+                label="Court Schedule"
+                sub="See availability"
+                accent={COLORS.neon}
+                icon={<CalendarRange size={24} color={COLORS.neon} />}
+                onPress={() => router.push('/availability')}
+              />
+            {/* Row 3 — View Rules (full width) */}
             <QuickAction
               label="View Rules"
               sub="Court policy"
@@ -167,7 +177,7 @@ export default function HomeScreen() {
         </Animated.View>
 
         {/* Shared court info */}
-        <Animated.View entering={FadeInDown.delay(260).duration(400)}>
+        <Animated.View entering={FadeInDown.delay(260).duration(400)} style={{ paddingHorizontal: 20 }}>
           <View
             style={{
               flexDirection: 'row',
@@ -188,10 +198,10 @@ export default function HomeScreen() {
         </Animated.View>
 
         {/* Memberships coming soon */}
-        <Animated.View entering={FadeInDown.delay(320).duration(400)}>
+        <Animated.View entering={FadeInDown.delay(320).duration(400)} style={{ paddingHorizontal: 20 }}>
           <Pressable onPress={() => router.push('/memberships')}>
             <LinearGradient
-              colors={[`${COLORS.coach}26`, 'rgba(255,255,255,0.04)']}
+              colors={[`${COLORS.coach}26`, COLORS.glassEdge]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={{
@@ -238,7 +248,13 @@ function QuickAction({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ width: '47%', flexGrow: 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: '100%',
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      })}
+    >
       <View
         style={{
           borderRadius: 20,
@@ -246,27 +262,35 @@ function QuickAction({
           backgroundColor: COLORS.card,
           borderWidth: 1,
           borderColor: `${accent}44`,
-          gap: 12,
-          minHeight: 110,
+          minHeight: 84,
+          flexDirection: 'row',
+          alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <View
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 14,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: `${accent}1f`,
-          }}
-        >
-          {icon}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
+          <View
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: `${accent}1f`,
+            }}
+          >
+            {icon}
+          </View>
+          <View style={{ minWidth: 0 }}>
+            <Text numberOfLines={2} adjustsFontSizeToFit style={{ color: COLORS.text, fontWeight: '800', fontSize: 15 }}>
+              {label}
+            </Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: COLORS.textMuted, fontSize: 12 }}>
+              {sub}
+            </Text>
+          </View>
         </View>
-        <View>
-          <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 15 }}>{label}</Text>
-          <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>{sub}</Text>
-        </View>
+        <ChevronRight size={22} color={COLORS.textMuted} />
       </View>
     </Pressable>
   );

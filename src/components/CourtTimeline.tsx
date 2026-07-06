@@ -72,7 +72,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
               left: 0,
               right: 0,
               height: 1,
-              backgroundColor: 'rgba(255,255,255,0.06)',
+              backgroundColor: COLORS.chip,
             }}
           />
         ))}
@@ -92,7 +92,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
                 right: 6,
                 height: Math.max(height - 4, 22),
                 borderRadius: 12,
-                backgroundColor: 'rgba(255,255,255,0.06)',
+                backgroundColor: COLORS.chip,
                 borderWidth: 1,
                 borderColor: COLORS.cardBorder,
                 borderStyle: 'dashed',
@@ -113,14 +113,18 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
           const top = (minutesFromOpen(b.startTime) / 60) * HOUR_HEIGHT;
           const height = (b.durationMinutes / 60) * HOUR_HEIGHT;
           const isCoach = b.bookingType === 'coach';
+          // Half-court bookings only occupy their side so two can sit side by side.
+          const isHalf = b.courtHalf === 'a' || b.courtHalf === 'b';
+          const left = b.courtHalf === 'b' ? '50%' : 6;
+          const right = b.courtHalf === 'a' ? '50%' : 6;
           return (
             <View
               key={b.id}
               style={{
                 position: 'absolute',
                 top: top + 2,
-                left: 6,
-                right: 6,
+                left,
+                right,
                 height: Math.max(height - 4, 26),
                 borderRadius: 14,
                 backgroundColor: `${accent}24`,
@@ -138,6 +142,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
                 <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: accent }} />
                 <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
                   {sportLabel(b.sportType)}
+                  {isHalf ? ' ½' : ''}
                   {isCoach ? ` · ${coachName(b.coachId)}` : ''}
                 </Text>
                 {isCoach ? (

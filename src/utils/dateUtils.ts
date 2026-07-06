@@ -58,7 +58,7 @@ export function upcomingDays(count: number): Date[] {
 
 // Court operating hours.
 export const OPEN_HOUR = 8; // 8:00 AM — first selectable start
-export const LAST_START_HOUR = 22; // 10:00 PM — latest selectable start
+export const LAST_START_HOUR = 23; // 11:00 PM — latest selectable start (11 PM–12 AM booking)
 export const CLOSE_HOUR = 24; // midnight — sessions must finish by here
 export const SLOT_STEP_MINUTES = 30; // booking grid granularity
 

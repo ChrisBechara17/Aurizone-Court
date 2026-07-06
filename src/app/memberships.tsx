@@ -37,7 +37,7 @@ export default function MembershipsScreen() {
         </View>
 
         <LinearGradient
-          colors={[`${COLORS.coach}33`, 'rgba(255,255,255,0.04)']}
+          colors={[`${COLORS.coach}33`, COLORS.glassEdge]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{ borderRadius: 22, padding: 18, borderWidth: 1, borderColor: `${COLORS.coach}55`, gap: 8 }}

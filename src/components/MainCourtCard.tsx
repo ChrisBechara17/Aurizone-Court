@@ -13,7 +13,7 @@ export function MainCourtCard({ activeSport }: Props) {
   const accent = activeSport ? sportAccent(activeSport) : COLORS.neon;
   return (
     <LinearGradient
-      colors={[`${accent}26`, 'rgba(255,255,255,0.04)']}
+      colors={[`${accent}26`, COLORS.glassEdge]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={{

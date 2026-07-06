@@ -18,19 +18,14 @@ const TOTAL_HOURS = CLOSE_HOUR - OPEN_HOUR;
 export default function AvailabilityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ date?: string }>();
-  const bookings = useAppStore((s) => s.bookings);
+  const occupancy = useAppStore((s) => s.occupancy);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
 
   const [date, setDate] = useState<Date>(
     params.date ? startOfDay(new Date(params.date)) : startOfDay(new Date()),
   );
 
-  const dayOccupants = bookings.filter(
-    (b) =>
-      b.usesMainCourt &&
-      (b.status === 'confirmed' || b.status === 'completed') &&
-      isSameDay(parseISO(b.startTime), date),
-  );
+  const dayOccupants = occupancy.filter((b) => isSameDay(parseISO(b.startTime), date));
   const bookedHours = dayOccupants.reduce((s, b) => s + b.durationMinutes / 60, 0);
   const freeHours = Math.max(0, TOTAL_HOURS - bookedHours);
 
@@ -87,10 +82,10 @@ export default function AvailabilityScreen() {
                 <Text style={{ color: COLORS.success, fontWeight: '800', fontSize: 15, marginBottom: 12 }}>
                   Court is wide open ✨
                 </Text>
-                <CourtTimeline date={date} bookings={bookings} courtBlocks={courtBlocks} />
+                <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} />
               </View>
             ) : (
-              <CourtTimeline date={date} bookings={bookings} courtBlocks={courtBlocks} />
+              <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} />
             )}
           </GlassCard>
         </Animated.View>
@@ -109,7 +104,8 @@ export default function AvailabilityScreen() {
         >
           <CalendarCheck size={18} color={COLORS.neon} />
           <Text style={{ color: COLORS.text, flex: 1, fontSize: 13, lineHeight: 19 }}>
-            Every block here occupies the one shared court — so it's unavailable for both basketball and tennis.
+            Full-width blocks take the whole court (both sports). A half-width ½ block is a
+            half-court basketball booking — the other side stays open for another group.
           </Text>
         </View>
 

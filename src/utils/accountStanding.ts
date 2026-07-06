@@ -13,7 +13,7 @@ import { Booking } from '@/models';
 
 export const MAX_STRIKES = 3;
 export const MAX_ACTIVE_RESERVATIONS = 1;
-export const CANCEL_CUTOFF_HOURS = 2;
+export const CANCEL_CUTOFF_HOURS = 3;
 
 export interface AccountStanding {
   strikes: number;

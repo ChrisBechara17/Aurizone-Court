@@ -1,20 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Booking, Coach, CourtBlock, User } from '@/models';
 
 // ---------------------------------------------------------------------------
-// Storage abstraction. Today this is backed by AsyncStorage. Tomorrow each of
-// these methods becomes an API call to the NestJS backend (Postgres + Redis
-// time-slot locking) — the rest of the app never needs to change.
+// Device-local preferences only. All shared data (users, bookings, coaches,
+// court blocks) lives in Supabase — see supabaseService.ts. These two settings
+// are per-device UI prefs, not shared data, so they stay on the device.
+// (The Supabase auth session is also persisted in AsyncStorage by the client.)
 // ---------------------------------------------------------------------------
 
 const KEYS = {
-  user: 'ch_user',
-  bookings: 'ch_bookings',
-  courtBlocks: 'ch_court_blocks',
-  coaches: 'ch_coaches',
   onboarded: 'ch_onboarded',
   remindersEnabled: 'ch_reminders_enabled',
+  theme: 'ch_theme',
 } as const;
+
+export type StoredTheme = 'dark' | 'light';
 
 async function readJSON<T>(key: string, fallback: T): Promise<T> {
   try {
@@ -30,33 +29,12 @@ async function writeJSON<T>(key: string, value: T): Promise<void> {
 }
 
 export const storageService = {
-  // User -------------------------------------------------------------------
-  getUser: () => readJSON<User | null>(KEYS.user, null),
-  saveUser: (user: User) => writeJSON(KEYS.user, user),
-  clearUser: () => AsyncStorage.removeItem(KEYS.user),
-
-  // Bookings ---------------------------------------------------------------
-  getBookings: () => readJSON<Booking[]>(KEYS.bookings, []),
-  saveBookings: (bookings: Booking[]) => writeJSON(KEYS.bookings, bookings),
-
-  // Court blocks -----------------------------------------------------------
-  getCourtBlocks: () => readJSON<CourtBlock[]>(KEYS.courtBlocks, []),
-  saveCourtBlocks: (blocks: CourtBlock[]) => writeJSON(KEYS.courtBlocks, blocks),
-
-  // Coaches (admin-managed) ------------------------------------------------
-  getCoaches: () => readJSON<Coach[] | null>(KEYS.coaches, null),
-  saveCoaches: (coaches: Coach[]) => writeJSON(KEYS.coaches, coaches),
-
-  // Onboarding -------------------------------------------------------------
   getOnboarded: () => readJSON<boolean>(KEYS.onboarded, false),
   setOnboarded: (v: boolean) => writeJSON(KEYS.onboarded, v),
 
-  // Settings ---------------------------------------------------------------
   getRemindersEnabled: () => readJSON<boolean>(KEYS.remindersEnabled, true),
   setRemindersEnabled: (v: boolean) => writeJSON(KEYS.remindersEnabled, v),
 
-  // Demo reset -------------------------------------------------------------
-  async clearAll() {
-    await AsyncStorage.multiRemove(Object.values(KEYS));
-  },
+  getTheme: () => readJSON<StoredTheme>(KEYS.theme, 'dark'),
+  setTheme: (v: StoredTheme) => writeJSON(KEYS.theme, v),
 };
