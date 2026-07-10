@@ -1,4 +1,4 @@
-import { Booking } from '@/models';
+import { Booking, LoyaltySettings, LoyaltyTierPerks, LoyaltyTransaction } from '@/models';
 
 // ---------------------------------------------------------------------------
 // CourtHub Rewards — a lightweight loyalty system derived from booking history.
@@ -46,8 +46,24 @@ export const TIERS: LoyaltyTier[] = [
   },
 ];
 
-/** Points earned per hour of confirmed/completed court time. */
-export const POINTS_PER_HOUR = 50;
+export const DEFAULT_TIER_PERKS: LoyaltyTierPerks = {
+  bronze: TIERS.find((t) => t.key === 'bronze')?.perks ?? [],
+  silver: TIERS.find((t) => t.key === 'silver')?.perks ?? [],
+  gold: TIERS.find((t) => t.key === 'gold')?.perks ?? [],
+  platinum: TIERS.find((t) => t.key === 'platinum')?.perks ?? [],
+};
+
+export const DEFAULT_LOYALTY_SETTINGS: LoyaltySettings = {
+  firstBookingBonus: 50,
+  pointsPerBooking: 10,
+  completionBonus: 5,
+  noShowPenalty: 20,
+};
+
+export const FIRST_BOOKING_BONUS = DEFAULT_LOYALTY_SETTINGS.firstBookingBonus;
+export const POINTS_PER_BOOKING = DEFAULT_LOYALTY_SETTINGS.pointsPerBooking;
+export const COMPLETION_BONUS = DEFAULT_LOYALTY_SETTINGS.completionBonus;
+export const NO_SHOW_POINT_PENALTY = DEFAULT_LOYALTY_SETTINGS.noShowPenalty;
 
 /** Complete this many "good" (completed, non-cancelled) bookings to earn a free session. */
 export const GOOD_BOOKINGS_PER_FREE = 10;
@@ -69,12 +85,20 @@ export interface LoyaltyState {
   freeProgress: number; // 0..1 toward the next free session
 }
 
-export function computeLoyalty(bookings: Booking[]): LoyaltyState {
-  const active = bookings.filter((b) => b.status === 'confirmed' || b.status === 'completed');
-  const points = active.reduce(
-    (sum, b) => sum + Math.round((b.durationMinutes / 60) * POINTS_PER_HOUR),
-    0,
-  );
+export function computeLoyalty(
+  bookings: Booking[],
+  settings: LoyaltySettings = DEFAULT_LOYALTY_SETTINGS,
+): LoyaltyState {
+  const active = bookings
+    .filter((b) => (b.status === 'confirmed' || b.status === 'completed') && !b.noShow)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  const earnedPoints = active.reduce((sum, b, index) => {
+    const base = index === 0 ? settings.firstBookingBonus : settings.pointsPerBooking;
+    const completion = b.status === 'completed' ? settings.completionBonus : 0;
+    return sum + base + completion;
+  }, 0);
+  const noShowPenalty = bookings.filter((b) => b.noShow && b.status !== 'cancelled').length * settings.noShowPenalty;
+  const points = Math.max(0, earnedPoints - noShowPenalty);
 
   // Highest tier whose threshold we've reached.
   let tier = TIERS[0];
@@ -112,5 +136,43 @@ export function computeLoyalty(bookings: Booking[]): LoyaltyState {
     availableFree,
     toNextFree,
     freeProgress,
+  };
+}
+
+export function computeLoyaltyFromTransactions(
+  transactions: LoyaltyTransaction[],
+  bookings: Booking[] = [],
+): LoyaltyState {
+  const points = Math.max(0, transactions.reduce((sum, tx) => sum + tx.points, 0));
+
+  let tier = TIERS[0];
+  for (const t of TIERS) if (points >= t.min) tier = t;
+
+  const idx = TIERS.findIndex((t) => t.key === tier.key);
+  const nextTier = idx < TIERS.length - 1 ? TIERS[idx + 1] : null;
+  const pointsToNext = nextTier ? Math.max(0, nextTier.min - points) : 0;
+  const progress = nextTier
+    ? Math.min(1, (points - tier.min) / (nextTier.min - tier.min))
+    : 1;
+
+  const goodBookings = bookings.filter((b) => b.status === 'completed' && !b.noShow).length;
+  const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
+  const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;
+  const availableFree = Math.max(0, earnedFree - redeemedFree);
+  const towardNext = goodBookings % GOOD_BOOKINGS_PER_FREE;
+
+  return {
+    points,
+    sessions: new Set(transactions.filter((tx) => tx.bookingId && tx.points > 0).map((tx) => tx.bookingId)).size,
+    tier,
+    nextTier,
+    pointsToNext,
+    progress,
+    goodBookings,
+    earnedFree,
+    redeemedFree,
+    availableFree,
+    toNextFree: GOOD_BOOKINGS_PER_FREE - towardNext,
+    freeProgress: towardNext / GOOD_BOOKINGS_PER_FREE,
   };
 }

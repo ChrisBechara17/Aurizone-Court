@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Trash2,
   Trophy,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -22,9 +23,10 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { LoyaltyCard } from '@/components/LoyaltyCard';
 import { Toggle } from '@/components/Toggle';
+import { ErrorBanner } from '@/components/ErrorBanner';
 import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
-import { computeLoyalty } from '@/utils/loyalty';
+import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
 import { REMINDER_LEAD_MINUTES } from '@/services/notificationService';
 
@@ -33,14 +35,25 @@ export default function ProfileScreen() {
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
   const logout = useAppStore((s) => s.logout);
+  const deleteAccount = useAppStore((s) => s.deleteAccount);
+  const notifications = useAppStore((s) => s.notifications);
+  const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
   const remindersEnabled = useAppStore((s) => s.remindersEnabled);
   const setRemindersEnabled = useAppStore((s) => s.setRemindersEnabled);
+  const loyaltySettings = useAppStore((s) => s.loyaltySettings);
   const theme = useThemeName();
   const setTheme = useAppStore((s) => s.setTheme);
   const isLight = theme === 'light';
   const [showEmail, setShowEmail] = useState(false);
+  const [accountErr, setAccountErr] = useState<string | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
   const bookings = allBookings.filter((b) => b.userId === user?.id);
-  const loyalty = computeLoyalty(bookings);
+  const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
+  const loyalty = myTransactions.length > 0
+    ? computeLoyaltyFromTransactions(myTransactions, bookings)
+    : computeLoyalty(bookings, loyaltySettings);
   const standing = computeStanding(bookings);
 
   const initials = (user?.name ?? 'P')
@@ -54,6 +67,27 @@ export default function ProfileScreen() {
     await logout();
     router.replace('/auth');
   };
+
+  const onDeleteAccount = () => {
+    setDeleteText('');
+    setAccountErr(null);
+    setDeleteOpen(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (deleteText !== 'DELETE') return;
+    setDeletingAccount(true);
+    const res = await deleteAccount();
+    setDeletingAccount(false);
+    if (!res.ok) {
+      setAccountErr(res.error ?? 'Could not delete account.');
+      return;
+    }
+    setDeleteOpen(false);
+    router.replace('/auth');
+  };
+
+  const unreadNotifications = notifications.filter((n) => !n.readAt).length;
 
   return (
     <ScreenContainer>
@@ -219,6 +253,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/(tabs)/bookings')}
           />
           <Row
+            icon={<Bell size={20} color={unreadNotifications > 0 ? COLORS.neon : COLORS.textMuted} />}
+            label="Notifications"
+            sub={unreadNotifications > 0 ? `${unreadNotifications} unread` : 'All caught up'}
+            onPress={() => router.push('/notifications' as any)}
+          />
+          <Row
             icon={<BookOpen size={20} color={COLORS.tennis} />}
             label="Court Rules"
             onPress={() => router.push('/rules')}
@@ -299,30 +339,130 @@ export default function ProfileScreen() {
           </GlassCard>
         </Animated.View>
 
-        <Pressable onPress={onLogout} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              paddingVertical: 16,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: `${COLORS.danger}66`,
-              backgroundColor: `${COLORS.danger}14`,
-              overflow: 'hidden',
-            }}
+        <View style={{ gap: 10 }}>
+          <ErrorBanner message={accountErr} />
+
+          <Pressable
+            onPress={onDeleteAccount}
+            disabled={deletingAccount}
+            style={({ pressed }) => ({ opacity: pressed || deletingAccount ? 0.7 : 1 })}
           >
-            <LogOut size={18} color={COLORS.danger} />
-            <Text style={{ color: COLORS.danger, fontWeight: '800', fontSize: 15 }}>Log Out (Demo)</Text>
-          </View>
-        </Pressable>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                paddingVertical: 16,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: `${COLORS.danger}66`,
+                backgroundColor: `${COLORS.danger}14`,
+                overflow: 'hidden',
+              }}
+            >
+              <Trash2 size={18} color={COLORS.danger} />
+              <Text style={{ color: COLORS.danger, fontWeight: '800', fontSize: 15 }}>
+                {deletingAccount ? 'Deleting Account...' : 'Delete Account'}
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable onPress={onLogout} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                paddingVertical: 16,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: `${COLORS.cardBorder}`,
+                backgroundColor: COLORS.chip,
+                overflow: 'hidden',
+              }}
+            >
+              <LogOut size={18} color={COLORS.textMuted} />
+              <Text style={{ color: COLORS.textMuted, fontWeight: '800', fontSize: 15 }}>Log Out</Text>
+            </View>
+          </Pressable>
+        </View>
 
         <Text style={{ color: COLORS.textFaint, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
           RizeON · Demo build · v1.0
         </Text>
       </ScrollView>
+
+      <Modal visible={deleteOpen} transparent animationType="fade" onRequestClose={() => setDeleteOpen(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: 'rgba(0,0,0,0.78)' }}>
+          <View
+            style={{
+              borderRadius: 20,
+              padding: 18,
+              backgroundColor: COLORS.bg700,
+              borderWidth: 1,
+              borderColor: `${COLORS.danger}66`,
+              gap: 14,
+              shadowColor: '#000',
+              shadowOpacity: 0.45,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: 12 },
+              elevation: 16,
+            }}
+          >
+            <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: '900' }}>Delete account?</Text>
+            <Text style={{ color: COLORS.textMuted, fontSize: 13, lineHeight: 19 }}>
+              This permanently deletes your account, profile, and booking history. Type DELETE to confirm.
+            </Text>
+            <TextInput
+              value={deleteText}
+              onChangeText={setDeleteText}
+              autoCapitalize="characters"
+              placeholder="DELETE"
+              placeholderTextColor={COLORS.textFaint}
+              style={{
+                backgroundColor: COLORS.bg800,
+                borderWidth: 1,
+                borderColor: deleteText === 'DELETE' ? COLORS.danger : COLORS.cardBorder,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                color: COLORS.text,
+                fontSize: 15,
+                fontWeight: '800',
+              }}
+            />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={() => setDeleteOpen(false)}
+                disabled={deletingAccount}
+                style={{ flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 14, backgroundColor: COLORS.bg800 }}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: '800' }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDeleteAccount}
+                disabled={deleteText !== 'DELETE' || deletingAccount}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  backgroundColor: deleteText === 'DELETE' ? `${COLORS.danger}2b` : COLORS.bg800,
+                  borderWidth: 1,
+                  borderColor: deleteText === 'DELETE' ? `${COLORS.danger}66` : COLORS.cardBorder,
+                  opacity: deleteText === 'DELETE' && !deletingAccount ? 1 : 0.45,
+                }}
+              >
+                <Text style={{ color: COLORS.danger, fontWeight: '900' }}>
+                  {deletingAccount ? 'Deleting...' : 'Delete'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }

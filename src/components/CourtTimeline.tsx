@@ -2,12 +2,11 @@ import { Text, View } from 'react-native';
 import { format, parseISO } from 'date-fns';
 import { Booking, CourtBlock } from '@/models';
 import { COLORS, sportAccent, sportLabel } from '@/constants/colors';
-import { OPEN_HOUR, CLOSE_HOUR, fmtTime, isSameDay } from '@/utils/dateUtils';
+import { OPEN_HOUR, CLOSE_HOUR, fmtTime, isSameDay, timeToMinutes } from '@/utils/dateUtils';
 import { COACHES } from '@/data/seedData';
 
 const HOUR_HEIGHT = 64;
 const GUTTER = 56;
-const TOTAL_HOURS = CLOSE_HOUR - OPEN_HOUR;
 
 const hourLabel = (h: number) => format(new Date(2000, 0, 1, h % 24), 'h a');
 const coachName = (id: string | null) => COACHES.find((c) => c.id === id)?.name ?? 'Coach';
@@ -16,10 +15,15 @@ interface Props {
   date: Date;
   bookings: Booking[];
   courtBlocks: CourtBlock[];
+  openTime?: string;
+  closeTime?: string;
 }
 
 /** Vertical day timeline of Main Court occupancy (the one shared court). */
-export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
+export function CourtTimeline({ date, bookings, courtBlocks, openTime, closeTime }: Props) {
+  const openHour = openTime ? timeToMinutes(openTime) / 60 : OPEN_HOUR;
+  const closeHour = closeTime ? timeToMinutes(closeTime) / 60 : CLOSE_HOUR;
+  const totalHours = closeHour - openHour;
   // Confirmed/completed court-occupying bookings on this calendar day.
   const occupants = bookings.filter(
     (b) =>
@@ -32,18 +36,18 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
 
   const minutesFromOpen = (iso: string) => {
     const d = parseISO(iso);
-    return d.getHours() * 60 + d.getMinutes() - OPEN_HOUR * 60;
+    return d.getHours() * 60 + d.getMinutes() - openHour * 60;
   };
 
   const now = new Date();
   const showNow = isSameDay(now, date);
-  const nowTop = (now.getHours() * 60 + now.getMinutes() - OPEN_HOUR * 60) / 60 * HOUR_HEIGHT;
+  const nowTop = (now.getHours() * 60 + now.getMinutes() - openHour * 60) / 60 * HOUR_HEIGHT;
 
   return (
-    <View style={{ flexDirection: 'row', height: TOTAL_HOURS * HOUR_HEIGHT }}>
+    <View style={{ flexDirection: 'row', height: totalHours * HOUR_HEIGHT }}>
       {/* Hour gutter + grid */}
       <View style={{ width: GUTTER }}>
-        {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
+        {Array.from({ length: Math.floor(totalHours) + 1 }, (_, i) => (
           <Text
             key={i}
             style={{
@@ -55,7 +59,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
               fontWeight: '600',
             }}
           >
-            {hourLabel(OPEN_HOUR + i)}
+            {hourLabel(openHour + i)}
           </Text>
         ))}
       </View>
@@ -63,7 +67,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
       {/* Track */}
       <View style={{ flex: 1, position: 'relative' }}>
         {/* Grid lines */}
-        {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
+        {Array.from({ length: Math.floor(totalHours) + 1 }, (_, i) => (
           <View
             key={i}
             style={{
@@ -161,7 +165,7 @@ export function CourtTimeline({ date, bookings, courtBlocks }: Props) {
         })}
 
         {/* Now indicator */}
-        {showNow && nowTop >= 0 && nowTop <= TOTAL_HOURS * HOUR_HEIGHT ? (
+        {showNow && nowTop >= 0 && nowTop <= totalHours * HOUR_HEIGHT ? (
           <View style={{ position: 'absolute', top: nowTop, left: 0, right: 0, flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: COLORS.neon }} />
             <View style={{ flex: 1, height: 2, backgroundColor: COLORS.neon }} />

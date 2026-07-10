@@ -30,7 +30,38 @@ alter table public.bookings
   where (uses_main_court = true and status = 'confirmed');
 
 -- ---------------------------------------------------------------------------
--- 2) Booking-vs-block overlap
+-- 2) Coach-vs-coach overlap
+--
+-- Coach sessions also need an authoritative DB guard. The app checks this on
+-- the client, but two admins can still submit at nearly the same time, or a
+-- caller can bypass the app and write through the API. This rejects any second
+-- confirmed booking for the same coach whose [start, end) range overlaps an
+-- existing confirmed booking. Cancelled/completed rows do not block the coach.
+--
+-- If this fails when first added, clean up existing overlapping confirmed coach
+-- bookings, then re-run this file.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'no_coach_overlap'
+      and conrelid = 'public.bookings'::regclass
+  ) then
+    alter table public.bookings
+      add constraint no_coach_overlap
+      exclude using gist (
+        coach_id with =,
+        tstzrange(start_time, end_time, '[)') with &&
+      )
+      where (status = 'confirmed' and coach_id is not null);
+  end if;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 3) Booking-vs-block overlap
 --
 -- The exclusion constraint only compares bookings to each other. This trigger
 -- also rejects a booking that overlaps an admin-created court block.

@@ -9,25 +9,34 @@ import { CourtTimeline } from '@/components/CourtTimeline';
 import { DateSelector } from '@/components/DateSelector';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { COLORS } from '@/constants/colors';
-import { OPEN_HOUR, CLOSE_HOUR, startOfDay, isSameDay } from '@/utils/dateUtils';
+import { startOfDay, isSameDay, operatingHoursForDate, timeToMinutes } from '@/utils/dateUtils';
 import { useAppStore } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
-
-const TOTAL_HOURS = CLOSE_HOUR - OPEN_HOUR;
 
 export default function AvailabilityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ date?: string }>();
   const occupancy = useAppStore((s) => s.occupancy);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
+  const operatingHours = useAppStore((s) => s.operatingHours);
 
   const [date, setDate] = useState<Date>(
     params.date ? startOfDay(new Date(params.date)) : startOfDay(new Date()),
   );
 
   const dayOccupants = occupancy.filter((b) => isSameDay(parseISO(b.startTime), date));
-  const bookedHours = dayOccupants.reduce((s, b) => s + b.durationMinutes / 60, 0);
-  const freeHours = Math.max(0, TOTAL_HOURS - bookedHours);
+  const dayHours = operatingHoursForDate(operatingHours, date);
+  const totalHours = dayHours.isClosed ? 0 : (timeToMinutes(dayHours.closeTime) - timeToMinutes(dayHours.openTime)) / 60;
+  // B3: count physical court-hours, not the sum of every booking's duration.
+  // Two concurrent half-court bookings share the same wall-clock hour, so merge
+  // overlapping intervals and measure their union instead of double-counting.
+  const bookedHours = mergedHours(
+    dayOccupants.map((b) => ({
+      start: parseISO(b.startTime).getTime(),
+      end: parseISO(b.endTime).getTime(),
+    })),
+  );
+  const freeHours = Math.max(0, totalHours - bookedHours);
 
   return (
     <ScreenContainer>
@@ -77,15 +86,20 @@ export default function AvailabilityScreen() {
         {/* Timeline */}
         <Animated.View entering={FadeInDown.delay(80).duration(350)}>
           <GlassCard>
-            {dayOccupants.length === 0 ? (
+            {dayHours.isClosed ? (
+              <View style={{ paddingVertical: 18 }}>
+                <Text style={{ color: COLORS.danger, fontWeight: '900', fontSize: 16 }}>Court is closed this day</Text>
+                <Text style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 4 }}>Pick another date to view availability.</Text>
+              </View>
+            ) : dayOccupants.length === 0 ? (
               <View style={{ paddingVertical: 4 }}>
                 <Text style={{ color: COLORS.success, fontWeight: '800', fontSize: 15, marginBottom: 12 }}>
                   Court is wide open ✨
                 </Text>
-                <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} />
+                <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
               </View>
             ) : (
-              <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} />
+              <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
             )}
           </GlassCard>
         </Animated.View>
@@ -113,6 +127,27 @@ export default function AvailabilityScreen() {
       </ScrollView>
     </ScreenContainer>
   );
+}
+
+/** Total hours covered by the union of [start,end) intervals (overlaps counted once). */
+function mergedHours(intervals: { start: number; end: number }[]): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  let total = 0;
+  let curStart = sorted[0].start;
+  let curEnd = sorted[0].end;
+  for (let i = 1; i < sorted.length; i++) {
+    const { start, end } = sorted[i];
+    if (start <= curEnd) {
+      curEnd = Math.max(curEnd, end);
+    } else {
+      total += curEnd - curStart;
+      curStart = start;
+      curEnd = end;
+    }
+  }
+  total += curEnd - curStart;
+  return total / 3_600_000;
 }
 
 function Stat({ value, label, color }: { value: string; label: string; color: string }) {

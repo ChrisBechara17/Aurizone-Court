@@ -1,4 +1,4 @@
-import { SportPrice, SportType } from '@/models';
+import { Pricing, SportPrice, SportType } from '@/models';
 
 // Displayed prices only — no payment processing in this demo.
 export const SPORT_PRICES: SportPrice[] = [
@@ -15,6 +15,32 @@ export const BALL_MACHINE_RATE = 15;
 // Basketball half-court rate ($/hr). Fallback only — the live value is admin-set
 // (app_settings.basketball_half_rate) and the server recomputes total_price.
 export const BASKETBALL_HALF_RATE = 18;
+
+// Fallback pricing (used before the live admin-set values load from Supabase).
+// Peak rates apply to bookings starting at/after 4 PM; ball machine is flat.
+export const DEFAULT_PRICING: Pricing = {
+  basketball: 30,
+  basketballPeak: 40,
+  basketballHalf: 18,
+  basketballHalfPeak: 24,
+  tennis: 20,
+  tennisPeak: 28,
+  ballMachineRate: 15,
+};
+
+/** Per-hour court rate for a sport, honoring half-court and peak/off-peak. */
+export function courtRate(
+  pricing: Pricing,
+  sport: SportType,
+  half: boolean,
+  peak: boolean,
+): number {
+  if (sport === 'basketball') {
+    if (half) return peak ? pricing.basketballHalfPeak : pricing.basketballHalf;
+    return peak ? pricing.basketballPeak : pricing.basketball;
+  }
+  return peak ? pricing.tennisPeak : pricing.tennis;
+}
 
 // Business constraints.
 // Bookings longer than 3h are not allowed; ≤3h auto-confirm.

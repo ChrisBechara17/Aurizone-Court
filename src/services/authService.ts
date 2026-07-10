@@ -36,6 +36,15 @@ export const authService = {
     if (error) return { ok: false, error: error.message };
     if (!data.user) return { ok: false, error: 'Sign up failed — please try again.' };
 
+    // A2: Supabase's anti-enumeration behavior returns a "fake" user with an
+    // empty identities array (and no session) when the email is already
+    // registered — no confirmation email is ever sent. Detect that and tell the
+    // user to sign in, instead of routing them to an OTP screen for a code that
+    // will never arrive.
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return { ok: false, error: 'An account with this email already exists. Please sign in instead.' };
+    }
+
     // Email confirmation on → verify the OTP first (see verifySignupCode).
     if (!data.session) return { ok: true, needsVerification: true };
 
@@ -98,6 +107,13 @@ export const authService = {
     await supabase.auth.signOut();
   },
 
+  async deleteAccount(): Promise<Result> {
+    const { error } = await supabase.rpc('delete_own_account');
+    if (error) return { ok: false, error: error.message };
+    await supabase.auth.signOut();
+    return { ok: true };
+  },
+
   /** Send a password-reset email with a 6-digit code (needs SMTP configured). */
   async resetPassword(email: string): Promise<Result> {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
@@ -127,21 +143,42 @@ export const authService = {
     } = await supabase.auth.getSession();
     if (!session) return null;
 
-    const { data } = await supabase
+    const uid = session.user.id;
+    const email = session.user.email ?? '';
+    const fallbackName = email.split('@')[0] || 'Player';
+
+    const { data, error } = await supabase
       .from('users')
       .select('id, name, phone_or_email, is_admin')
-      .eq('id', session.user.id)
+      .eq('id', uid)
       .maybeSingle();
 
     if (data) return mapProfile(data);
 
-    // Session exists but no profile row yet — fall back to a minimal profile.
-    const email = session.user.email ?? '';
-    return {
-      id: session.user.id,
-      name: email.split('@')[0] || 'Player',
-      phoneOrEmail: email,
-      isAdmin: isAdminContact(email),
-    };
+    // A4: distinguish a real query failure (offline / RLS) from a genuinely
+    // missing row. On error we must NOT fabricate a profile whose admin flag is
+    // guessed from the email — that can wrongly show/hide admin UI. Return a
+    // safe, non-admin fallback so the session survives without elevating access.
+    if (error) {
+      return { id: uid, name: fallbackName, phoneOrEmail: email, isAdmin: false };
+    }
+
+    // A1: session is valid but the profile row is missing — typically the
+    // post-OTP profile insert failed, which strands the account (bookings FK to
+    // public.users would fail). Self-heal by creating the row now so the account
+    // becomes fully usable, then return the authoritative stored profile.
+    const healed = await authService.ensureProfile(fallbackName, email);
+    if (healed.ok) {
+      const { data: created } = await supabase
+        .from('users')
+        .select('id, name, phone_or_email, is_admin')
+        .eq('id', uid)
+        .maybeSingle();
+      if (created) return mapProfile(created);
+    }
+
+    // Couldn't create the row (e.g. transient failure) — minimal fallback so the
+    // user isn't logged out; the next launch will retry the self-heal.
+    return { id: uid, name: fallbackName, phoneOrEmail: email, isAdmin: isAdminContact(email) };
   },
 };

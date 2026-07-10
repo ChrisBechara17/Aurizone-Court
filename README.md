@@ -28,6 +28,9 @@ npx expo start     # press a for Android, i for iOS, or scan the QR with Expo Go
 
 Requires the **Expo Go** app on your phone, or an Android/iOS simulator.
 
+For launch preparation beyond Expo Go, use `PRODUCTION_READINESS.md`.
+For database backup and emergency recovery, use `supabase/BACKUP_RECOVERY.md`.
+
 ## The one critical rule
 
 There is **one** physical court. Basketball and tennis are just _modes_ that change

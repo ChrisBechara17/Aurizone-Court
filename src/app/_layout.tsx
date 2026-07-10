@@ -36,10 +36,13 @@ export default function RootLayout() {
           <Stack.Screen name="rules" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="memberships" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="loyalty" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          <Stack.Screen name="notifications" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          <Stack.Screen name="booking-detail" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="availability" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin-users" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin-user" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          <Stack.Screen name="admin-booking" options={{ presentation: 'card', animation: 'slide_from_right' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

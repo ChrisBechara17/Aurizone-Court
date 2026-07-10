@@ -32,6 +32,7 @@ if (!isExpoGo) {
 
 /** True when reminders can actually be scheduled on this runtime. */
 export const remindersSupported = !!Notifications;
+export const pushSupported = !!Notifications && !isExpoGo;
 
 let configured = false;
 
@@ -70,6 +71,41 @@ export async function ensurePermissions(): Promise<boolean> {
   }
   const req = await Notifications.requestPermissionsAsync();
   return req.granted;
+}
+
+export function getPushSupportStatus(): { supported: boolean; reason: string } {
+  if (isExpoGo) return { supported: false, reason: 'Expo Go fallback' };
+  if (!Notifications) return { supported: false, reason: 'expo-notifications unavailable' };
+  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return { supported: false, reason: 'Missing EAS project id' };
+  return { supported: true, reason: 'Ready' };
+}
+
+export async function registerForPushToken(): Promise<{ token: string | null; reason: string }> {
+  const status = getPushSupportStatus();
+  if (!status.supported || !Notifications) return { token: null, reason: status.reason };
+  const granted = await ensurePermissions();
+  if (!granted) return { token: null, reason: 'Permission denied' };
+  try {
+    const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+    const token = await Notifications.getExpoPushTokenAsync({ projectId });
+    return { token: token.data, reason: 'Registered' };
+  } catch (e: any) {
+    return { token: null, reason: e?.message ?? 'Could not register push token' };
+  }
+}
+
+export async function sendExpoPush(tokens: string[], title: string, body: string, data: Record<string, unknown> = {}) {
+  if (tokens.length === 0) return;
+  try {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data }))),
+    });
+  } catch {
+    // Push is best-effort; in-app notifications remain the source of truth.
+  }
 }
 
 const coachName = (id: string | null) => COACHES.find((c) => c.id === id)?.name ?? 'your coach';

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CalendarCheck, CalendarRange, Gift, Rocket, Users } from 'lucide-react-native';
@@ -21,16 +21,19 @@ import { CreateResult } from '@/services/bookingService';
 import {
   calculateEndTime,
   combineDateAndTime,
-  fitsWithinHours,
+  fitsWithinOperatingHours,
   fmtDate,
   fmtTime,
   formatDuration,
+  isPeakStart,
+  operatingHoursForDate,
   startOfDay,
-  timeSlots,
+  timeSlotsForOperatingHours,
 } from '@/utils/dateUtils';
+import { courtRate } from '@/constants/prices';
 import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
-import { computeLoyalty } from '@/utils/loyalty';
-import { computeStanding, hasReachedBookingLimit } from '@/utils/accountStanding';
+import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
+import { computeStanding } from '@/utils/accountStanding';
 
 export default function BookScreen() {
   useThemeName();
@@ -43,10 +46,21 @@ export default function BookScreen() {
   const myBookings = bookings.filter((b) => b.userId === user?.id);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
   const pricing = useAppStore((s) => s.pricing); // admin-set rates
+  const loyaltySettings = useAppStore((s) => s.loyaltySettings);
+  const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
+  const operatingHours = useAppStore((s) => s.operatingHours);
 
   // Primary sport is tennis; basketball only when explicitly requested.
   const initialSport: SportType = params.sport === 'basketball' ? 'basketball' : 'tennis';
   const [sport, setSport] = useState<SportType>(initialSport);
+
+  // B2: when the Book tab is already mounted, a home quick-action changes the
+  // ?sport param but not component state — sync it so the right sport is shown.
+  useEffect(() => {
+    if (params.sport === 'basketball' || params.sport === 'tennis') {
+      setSport(params.sport);
+    }
+  }, [params.sport]);
   const [date, setDate] = useState<Date>(startOfDay(new Date()));
   const [time, setTime] = useState('18:00');
   const [duration, setDuration] = useState(1);
@@ -62,27 +76,37 @@ export default function BookScreen() {
   // Half court is a basketball-only option (leaves the other half free for others).
   const half = sport === 'basketball' && halfCourt;
 
-  const loyalty = computeLoyalty(myBookings);
+  const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
+  const loyalty = myTransactions.length > 0
+    ? computeLoyaltyFromTransactions(myTransactions, myBookings)
+    : computeLoyalty(myBookings, loyaltySettings);
   const freeRedeemable = loyalty.availableFree > 0;
   const isFree = useFree && freeRedeemable;
+  const dayHours = operatingHoursForDate(operatingHours, date);
+  const daySlots = useMemo(() => timeSlotsForOperatingHours(dayHours), [dayHours]);
 
-  // Booking policy: disabled accounts and the one-active-booking limit (per user).
+  useEffect(() => {
+    if (daySlots.length > 0 && !daySlots.includes(time)) setTime(daySlots[0]);
+  }, [daySlots, time]);
+
+  // Booking policy: only disabled accounts (3+ no-shows) are blocked. Users may
+  // hold any number of upcoming bookings.
   const standing = computeStanding(myBookings);
-  const atLimit = hasReachedBookingLimit(myBookings);
   const blockReason = standing.disabled
     ? 'Your account is disabled after 3 no-shows. Please contact the front desk.'
-    : atLimit
-      ? 'You already have an upcoming booking. Cancel it before booking another slot.'
-      : null;
+    : null;
 
   const accent = sportAccent(sport);
-  const price = half ? pricing.basketballHalf : sport === 'basketball' ? pricing.basketball : pricing.tennis;
+  // Peak pricing is decided by the START time (≥ 4 PM = peak). The server
+  // re-computes this authoritatively; here it drives the live estimate.
+  const peak = isPeakStart(combineDateAndTime(date, time));
+  const price = courtRate(pricing, sport, half, peak);
 
   // Compute unavailable start times for the chosen date + duration.
   // Full/tennis needs the whole court free; a half booking just needs one side.
   const unavailable = useMemo(() => {
-    return timeSlots().filter((slot) => {
-      if (!fitsWithinHours(slot, duration)) return true;
+    return daySlots.filter((slot) => {
+      if (!fitsWithinOperatingHours(slot, duration, dayHours)) return true;
       const start = combineDateAndTime(date, slot).toISOString();
       const end = calculateEndTime(combineDateAndTime(date, slot), duration).toISOString();
       if (half) {
@@ -94,7 +118,7 @@ export default function BookScreen() {
         courtBlocks,
       );
     });
-  }, [date, duration, occupancy, courtBlocks, half]);
+  }, [date, duration, occupancy, courtBlocks, half, dayHours, daySlots]);
 
   const start = combineDateAndTime(date, time);
   const end = calculateEndTime(start, duration);
@@ -111,8 +135,15 @@ export default function BookScreen() {
       setError(blockReason);
       return;
     }
-    if (!fitsWithinHours(time, duration)) {
-      setError('This session would run past closing time (12:00 AM). Pick an earlier start or shorter duration.');
+    if (!fitsWithinOperatingHours(time, duration, dayHours)) {
+      setError(dayHours.isClosed ? 'The court is closed that day.' : 'This session would run outside operating hours.');
+      return;
+    }
+    // B1: no booking a slot that has already started/passed (the server rejects
+    // it too — see supabase/harden-booking-integrity.sql — this is the friendly
+    // first line of defense that also stops loyalty farming from past bookings).
+    if (start.getTime() <= Date.now()) {
+      setError('Pick a start time in the future.');
       return;
     }
     setSubmitting(true);
@@ -177,7 +208,11 @@ export default function BookScreen() {
         {/* Time */}
         <View style={{ gap: 10, paddingHorizontal: 20 }}>
           <Label text="Start Time" />
-          <TimeSlotPicker value={time} onChange={setTime} accent={accent} unavailable={unavailable} />
+          {dayHours.isClosed ? (
+            <ErrorBanner message="The court is closed on this day." />
+          ) : (
+            <TimeSlotPicker value={time} onChange={setTime} accent={accent} unavailable={unavailable} slots={daySlots} />
+          )}
           {unavailable.includes(time) ? (
             <ErrorBanner
               message={
@@ -265,6 +300,7 @@ export default function BookScreen() {
             { label: 'Start time', value: fmtTime(start) },
             { label: 'End time', value: fmtTime(end) },
             { label: 'Duration', value: formatDuration(duration) },
+            { label: 'Rate', value: peak ? 'Peak (from 4 PM)' : 'Off-peak', highlight: peak },
             { label: 'Price per hour', value: `$${price}` },
             ...(machineActive
               ? [{ label: 'Ball machine', value: `+$${pricing.ballMachineRate}/hr`, highlight: true }]

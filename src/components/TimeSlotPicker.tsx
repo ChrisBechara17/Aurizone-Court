@@ -11,6 +11,7 @@ interface Props {
   accent?: string;
   /** times that should appear disabled (already booked / past closing). "HH:mm" */
   unavailable?: string[];
+  slots?: string[];
 }
 
 type PeriodKey = 'morning' | 'afternoon' | 'evening';
@@ -30,8 +31,9 @@ const periodOf = (t: string): PeriodKey => {
 
 const pretty = (t: string) => format(parse(t, 'HH:mm', new Date()), 'h:mm a');
 
-export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavailable = [] }: Props) {
-  const allSlots = useMemo(() => timeSlots(), []);
+export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavailable = [], slots }: Props) {
+  const fallbackSlots = useMemo(() => timeSlots(), []);
+  const allSlots = slots ?? fallbackSlots;
   const [period, setPeriod] = useState<PeriodKey>(periodOf(value));
 
   // Follow the selected value into its period (e.g. when parent resets time).
@@ -39,7 +41,7 @@ export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavaila
     setPeriod(periodOf(value));
   }, [value]);
 
-  const slots = allSlots.filter((t) => periodOf(t) === period);
+  const periodSlots = allSlots.filter((t) => periodOf(t) === period);
 
   // Free-slot count per period for the little badges.
   const freeCount = (p: PeriodKey) =>
@@ -95,7 +97,7 @@ export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavaila
 
       {/* Slots for the active period */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {slots.map((t) => {
+        {periodSlots.map((t) => {
           const active = t === value;
           const disabled = unavailable.includes(t);
           return (

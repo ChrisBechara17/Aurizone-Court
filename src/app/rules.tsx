@@ -5,10 +5,13 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { COLORS } from '@/constants/colors';
-import { COURT_RULES } from '@/data/seedData';
+import { useAppStore, useThemeName } from '@/store/useAppStore';
 
 export default function RulesScreen() {
+  useThemeName();
   const router = useRouter();
+  const rules = useAppStore((s) => s.courtRules);
+  const sorted = [...rules].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   return (
     <ScreenContainer>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 18 }} showsVerticalScrollIndicator={false}>
@@ -42,7 +45,7 @@ export default function RulesScreen() {
         </GlassCard>
 
         <View style={{ gap: 12 }}>
-          {COURT_RULES.map((rule, i) => (
+          {sorted.map((rule, i) => (
             <Animated.View key={rule.id} entering={FadeInDown.delay(i * 40).duration(300)}>
               <GlassCard>
                 <View style={{ flexDirection: 'row', gap: 14 }}>

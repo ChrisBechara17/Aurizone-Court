@@ -43,6 +43,9 @@ export default function VerifyOtp() {
   }, [cooldown]);
 
   const verify = async (submitted: string) => {
+    // A6: guard against double submit — OtpCodeInput auto-fires onComplete AND
+    // the button calls verify, so a fast tap could verify the same code twice.
+    if (verifying) return;
     if (submitted.length < 6) return setError('Enter the 6-digit code from your email.');
     setError(null);
     setNotice(null);

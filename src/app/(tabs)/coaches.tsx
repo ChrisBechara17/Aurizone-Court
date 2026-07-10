@@ -5,15 +5,15 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { CoachCard } from '@/components/CoachCard';
 import { EmptyState } from '@/components/EmptyState';
-import { COLORS } from '@/constants/colors';
+import { COLORS, sportAccent } from '@/constants/colors';
 import { SportType } from '@/models';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 
 type Filter = 'all' | SportType;
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'basketball', label: 'Basketball' },
   { key: 'tennis', label: 'Tennis' },
+  { key: 'basketball', label: 'Basketball' },
 ];
 
 export default function CoachesScreen() {
@@ -68,6 +68,7 @@ export default function CoachesScreen() {
         >
           {FILTERS.map((f) => {
             const isActive = filter === f.key;
+            const accent = f.key === 'all' ? COLORS.coach : sportAccent(f.key);
             return (
               <Pressable key={f.key} onPress={() => setFilter(f.key)} style={{ flex: 1 }}>
                 <View
@@ -75,12 +76,12 @@ export default function CoachesScreen() {
                     paddingVertical: 10,
                     borderRadius: 14,
                     alignItems: 'center',
-                    backgroundColor: isActive ? `${COLORS.coach}26` : 'transparent',
+                    backgroundColor: isActive ? `${accent}26` : 'transparent',
                     borderWidth: 1.5,
-                    borderColor: isActive ? `${COLORS.coach}99` : 'transparent',
+                    borderColor: isActive ? `${accent}99` : 'transparent',
                   }}
                 >
-                  <Text style={{ color: isActive ? COLORS.coach : COLORS.textMuted, fontWeight: isActive ? '800' : '700', fontSize: 13 }}>
+                  <Text style={{ color: isActive ? accent : COLORS.textMuted, fontWeight: isActive ? '800' : '700', fontSize: 13 }}>
                     {f.label}
                   </Text>
                 </View>
@@ -99,7 +100,7 @@ export default function CoachesScreen() {
         ) : (
           list.map((c, i) => (
             <Animated.View key={c.id} entering={FadeInDown.delay(i * 60).duration(350)}>
-              <CoachCard coach={c} />
+              <CoachCard coach={c} highlightSport={filter === 'all' ? undefined : filter} />
             </Animated.View>
           ))
         )}

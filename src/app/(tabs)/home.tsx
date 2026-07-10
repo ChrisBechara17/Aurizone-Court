@@ -21,7 +21,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { LoyaltyCard } from '@/components/LoyaltyCard';
 import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
-import { computeLoyalty } from '@/utils/loyalty';
+import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { parseISO } from 'date-fns';
 
 export default function HomeScreen() {
@@ -30,13 +30,19 @@ export default function HomeScreen() {
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
   const pricing = useAppStore((s) => s.pricing);
+  const loyaltySettings = useAppStore((s) => s.loyaltySettings);
+  const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
   const bookings = allBookings.filter((b) => b.userId === (user?.id ?? 'demo-user'));
-  const loyalty = computeLoyalty(bookings);
+  const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
+  const loyalty = myTransactions.length > 0
+    ? computeLoyaltyFromTransactions(myTransactions, bookings)
+    : computeLoyalty(bookings, loyaltySettings);
 
   const upcoming = bookings
     .filter((b) => b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now())
     .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
-  const nextBooking = upcoming[0];
+  // Show the next few upcoming bookings, not just one.
+  const nextBookings = upcoming.slice(0, 3);
 
   return (
     <ScreenContainer>
@@ -112,11 +118,11 @@ export default function HomeScreen() {
           <LoyaltyCard loyalty={loyalty} onPress={() => router.push('/loyalty')} />
         </Animated.View>
 
-        {/* Upcoming booking */}
+        {/* Upcoming bookings (next 3) */}
         <Animated.View entering={FadeInDown.delay(140).duration(400)} style={{ gap: 10, paddingHorizontal: 20 }}>
-          <SectionTitle title="Upcoming Booking" />
-          {nextBooking ? (
-            <BookingCard booking={nextBooking} />
+          <SectionTitle title="Upcoming Bookings" />
+          {nextBookings.length > 0 ? (
+            nextBookings.map((b) => <BookingCard key={b.id} booking={b} />)
           ) : (
             <GlassCard>
               <EmptyState

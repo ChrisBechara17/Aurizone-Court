@@ -61,6 +61,8 @@ insert into public.app_settings (key, value)
 -- ---- 5) server-authoritative price handles the half rate ------------------
 -- Half bookings (court_half a/b) are basketball-only and priced at the
 -- admin-set basketball_half_rate; everything else keeps the full sport rate.
+-- The server also validates free-reward redemptions against the derived reward
+-- ledger (see public.free_reward_balance) so a client can't book for $0.
 create or replace function public.compute_booking_price()
 returns trigger
 language plpgsql
@@ -85,13 +87,22 @@ begin
 
     sport_rate   := coalesce(sport_rate, 0);
     machine_rate := coalesce(machine_rate, 0);
-    hours        := new.duration_minutes / 60.0;
+    -- SECURITY (Q3): price from the actual booked span, not the client-supplied
+    -- duration_minutes (which a tampered client can shrink to underpay).
+    hours        := extract(epoch from (new.end_time - new.start_time)) / 3600.0;
     machine_cost := case when new.ball_machine then machine_rate * hours else 0 end;
 
-    new.total_price := case
-      when new.is_free_reward then machine_cost
-      else sport_rate * hours + machine_cost
-    end;
+    -- SECURITY (Q2): only honor is_free_reward when the reward ledger confirms an
+    -- unredeemed free session for this user; otherwise force it false and charge
+    -- the full price. Recurring bookings can never be free.
+    if new.is_free_reward
+       and not new.is_recurring
+       and public.free_reward_balance(new.user_id) >= 1 then
+      new.total_price := machine_cost;                    -- court free, add-ons still billed
+    else
+      new.is_free_reward := false;
+      new.total_price := sport_rate * hours + machine_cost;
+    end if;
   end if;
   return new;
 end;

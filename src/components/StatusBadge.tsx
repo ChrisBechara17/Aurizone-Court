@@ -2,14 +2,22 @@ import { Text, View } from 'react-native';
 import { BookingStatus } from '@/models';
 import { COLORS } from '@/constants/colors';
 
-const MAP: Record<BookingStatus, { label: string; color: string }> = {
-  confirmed: { label: 'Confirmed', color: COLORS.success },
-  cancelled: { label: 'Cancelled', color: COLORS.danger },
-  completed: { label: 'Completed', color: COLORS.neon },
+// U1: build the label/color map at render time. Capturing COLORS at module load
+// froze the dark-theme values, so badges kept dark colors after a theme switch.
+const LABELS: Record<BookingStatus, string> = {
+  confirmed: 'Confirmed',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
 };
 
 export function StatusBadge({ status }: { status: BookingStatus }) {
-  const { label, color } = MAP[status];
+  const colorFor: Record<BookingStatus, string> = {
+    confirmed: COLORS.success,
+    cancelled: COLORS.danger,
+    completed: COLORS.neon,
+  };
+  const label = LABELS[status];
+  const color = colorFor[status];
   return (
     <View
       style={{

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, Text, View } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CalendarCheck, Repeat } from 'lucide-react-native';
 import { BasketballIcon, TennisIcon } from '@/components/icons/SportIcon';
@@ -9,39 +9,40 @@ import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
 
-const { width } = Dimensions.get('window');
-
-const SLIDES = [
-  {
-    icon: (c: string) => <CalendarCheck size={64} color={c} />,
-    accent: COLORS.neon,
-    title: 'Reserve the shared court instantly',
-    body: 'One Main Court, one tap. Lock your slot in seconds with a clean, fast booking flow.',
-  },
-  {
-    icon: (_c: string) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-        <BasketballIcon size={58} color={COLORS.basketball} />
-        <TennisIcon size={58} color={COLORS.tennis} />
-      </View>
-    ),
-    accent: COLORS.basketball,
-    title: 'Choose basketball or tennis',
-    body: 'Switch between Basketball Mode and Tennis Mode. Same court — the sport just sets the price.',
-  },
-  {
-    icon: (c: string) => <Repeat size={64} color={c} />,
-    accent: COLORS.coach,
-    title: 'Find coaches & repeat weekly',
-    body: 'Browse our private coaches and contact them directly, and set recurring weekly court bookings.',
-  },
-];
-
 export default function Onboarding() {
   const router = useRouter();
   const complete = useAppStore((s) => s.completeOnboarding);
   const ref = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
+  // U4/U8: read dimensions and theme colors at render time, not module load, so
+  // the layout follows the real window size (rotation) and the live palette.
+  const { width } = useWindowDimensions();
+
+  const SLIDES = [
+    {
+      icon: (c: string) => <CalendarCheck size={64} color={c} />,
+      accent: COLORS.neon,
+      title: 'Reserve the shared court instantly',
+      body: 'One Main Court, one tap. Lock your slot in seconds with a clean, fast booking flow.',
+    },
+    {
+      icon: (_c: string) => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          <BasketballIcon size={58} color={COLORS.basketball} />
+          <TennisIcon size={58} color={COLORS.tennis} />
+        </View>
+      ),
+      accent: COLORS.basketball,
+      title: 'Choose basketball or tennis',
+      body: 'Switch between Basketball Mode and Tennis Mode. Same court — the sport just sets the price.',
+    },
+    {
+      icon: (c: string) => <Repeat size={64} color={c} />,
+      accent: COLORS.coach,
+      title: 'Find coaches & repeat weekly',
+      body: 'Browse our private coaches and contact them directly, and set recurring weekly court bookings.',
+    },
+  ];
 
   const finish = async () => {
     await complete();

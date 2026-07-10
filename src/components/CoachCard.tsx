@@ -1,6 +1,6 @@
 import { Linking, Pressable, Text, View } from 'react-native';
 import { Pencil, Phone, Star } from 'lucide-react-native';
-import { Coach } from '@/models';
+import { Coach, SportType } from '@/models';
 import { COLORS, sportAccent, sportLabel } from '@/constants/colors';
 
 interface Props {
@@ -9,11 +9,13 @@ interface Props {
   onRemove?: (id: string) => void;
   /** Admin edit handler — shows an "Edit" button. */
   onEdit?: (id: string) => void;
+  /** Sport currently selected in the public coaches filter. */
+  highlightSport?: SportType;
 }
 
-export function CoachCard({ coach, onRemove, onEdit }: Props) {
+export function CoachCard({ coach, onRemove, onEdit, highlightSport }: Props) {
   const sportsText = coach.supportedSports.map(sportLabel).join(' & ');
-  const primaryAccent = sportAccent(coach.supportedSports[0]);
+  const primaryAccent = sportAccent(highlightSport ?? coach.supportedSports[0]);
   const initials = coach.name.replace('Coach ', '').slice(0, 1);
 
   const call = () => {
@@ -47,9 +49,16 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 16 }}>{coach.name}</Text>
+          {/* U3: let the sports label shrink/ellipsize, and keep the rating from
+              shrinking so "5.0" never clips to "5." on Android. */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
-            <Text style={{ color: primaryAccent, fontSize: 12, fontWeight: '700' }}>{sportsText}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <Text
+              numberOfLines={1}
+              style={{ color: primaryAccent, fontSize: 12, fontWeight: '700', flexShrink: 1 }}
+            >
+              {sportsText}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 }}>
               <Star size={12} color={COLORS.warning} fill={COLORS.warning} />
               <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>{coach.rating.toFixed(1)}</Text>
             </View>
@@ -74,9 +83,12 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
           borderTopColor: COLORS.cardBorder,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-          <Phone size={15} color={COLORS.coach} />
-          <Text style={{ color: COLORS.text, fontSize: 14, fontWeight: '600' }}>{coach.phone}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <Phone size={15} color={primaryAccent} />
+          {/* U3: shrink + ellipsize a long phone number instead of hard-clipping it. */}
+          <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: 14, fontWeight: '600', flexShrink: 1 }}>
+            {coach.phone}
+          </Text>
         </View>
 
         {onRemove || onEdit ? (
@@ -125,11 +137,11 @@ export function CoachCard({ coach, onRemove, onEdit }: Props) {
               paddingVertical: 9,
               borderRadius: 12,
               overflow: 'hidden',
-              backgroundColor: pressed ? `${COLORS.coach}45` : `${COLORS.coach}2e`,
+              backgroundColor: pressed ? `${primaryAccent}45` : `${primaryAccent}2e`,
             })}
           >
-            <Phone size={14} color={COLORS.coach} />
-            <Text style={{ color: COLORS.coach, fontWeight: '800', fontSize: 13 }}>Call</Text>
+            <Phone size={14} color={primaryAccent} />
+            <Text style={{ color: primaryAccent, fontWeight: '800', fontSize: 13 }}>Call</Text>
           </Pressable>
         )}
       </View>

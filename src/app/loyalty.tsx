@@ -7,18 +7,28 @@ import { GlassCard } from '@/components/GlassCard';
 import { LoyaltyCard } from '@/components/LoyaltyCard';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
-import { computeLoyalty, GOOD_BOOKINGS_PER_FREE, POINTS_PER_HOUR, TIERS } from '@/utils/loyalty';
+import { computeLoyalty, computeLoyaltyFromTransactions, GOOD_BOOKINGS_PER_FREE, TIERS } from '@/utils/loyalty';
 
 export default function LoyaltyScreen() {
   const router = useRouter();
+  const user = useAppStore((s) => s.user);
   const bookings = useAppStore((s) => s.bookings);
-  const loyalty = computeLoyalty(bookings);
+  const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
+  const loyaltySettings = useAppStore((s) => s.loyaltySettings);
+  const tierPerks = useAppStore((s) => s.tierPerks);
+  // S3: the store holds every user's bookings when the current user is an admin.
+  // Loyalty is personal, so compute it from only this user's bookings.
+  const myBookings = bookings.filter((b) => b.userId === user?.id);
+  const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
+  const loyalty = myTransactions.length > 0
+    ? computeLoyaltyFromTransactions(myTransactions, myBookings)
+    : computeLoyalty(myBookings, loyaltySettings);
 
   const earnRules = [
-    { icon: <CalendarCheck size={18} color={COLORS.neon} />, text: `Earn ${POINTS_PER_HOUR} points for every hour you book on the Main Court.` },
-    { icon: <Zap size={18} color={COLORS.basketball} />, text: 'Coach sessions count too — train more, earn more.' },
+    { icon: <CalendarCheck size={18} color={COLORS.neon} />, text: `Your first booking starts with ${loyaltySettings.firstBookingBonus} points.` },
+    { icon: <Zap size={18} color={COLORS.basketball} />, text: `After that, earn ${loyaltySettings.pointsPerBooking} points per booking plus ${loyaltySettings.completionBonus} when you show up and complete it.` },
     { icon: <Gift size={18} color={COLORS.success} />, text: `Complete ${GOOD_BOOKINGS_PER_FREE} sessions and your next court booking is free.` },
-    { icon: <Star size={18} color={COLORS.warning} />, text: 'Climb tiers to unlock perks and rewards.' },
+    { icon: <Star size={18} color={COLORS.warning} />, text: `No-shows subtract ${loyaltySettings.noShowPenalty} points. Climb tiers to unlock perks and rewards.` },
   ];
 
   return (
@@ -141,6 +151,34 @@ export default function LoyaltyScreen() {
           </GlassCard>
         </Animated.View>
 
+        {/* Points history */}
+        <Animated.View entering={FadeInDown.delay(170).duration(400)} style={{ gap: 10 }}>
+          <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '800' }}>Points History</Text>
+          <GlassCard>
+            {myTransactions.length === 0 ? (
+              <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>
+                Point transactions will appear here after the loyalty ledger upgrade is run.
+              </Text>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {myTransactions.slice(0, 20).map((tx) => (
+                  <View key={tx.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 13 }}>{tx.description}</Text>
+                      <Text style={{ color: COLORS.textFaint, fontSize: 11 }}>
+                        {new Date(tx.createdAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Text style={{ color: tx.points >= 0 ? COLORS.success : COLORS.danger, fontWeight: '900', fontSize: 14 }}>
+                      {tx.points >= 0 ? '+' : ''}{tx.points}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </GlassCard>
+        </Animated.View>
+
         {/* Tier ladder */}
         <Animated.View entering={FadeInDown.delay(200).duration(400)} style={{ gap: 10 }}>
           <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '800' }}>Membership Tiers</Text>
@@ -194,7 +232,7 @@ export default function LoyaltyScreen() {
                     ) : null}
                   </View>
                   <View style={{ gap: 7 }}>
-                    {t.perks.map((p) => (
+                    {tierPerks[t.key].map((p) => (
                       <View key={p} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Check size={14} color={reached ? t.color : COLORS.textFaint} />
                         <Text style={{ color: reached ? COLORS.textMuted : COLORS.textFaint, fontSize: 13 }}>{p}</Text>

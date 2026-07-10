@@ -6,7 +6,7 @@ import {
   generateWeeklyOccurrences,
 } from '@/utils/dateUtils';
 import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
-import { computeStanding, hasReachedBookingLimit } from '@/utils/accountStanding';
+import { computeStanding } from '@/utils/accountStanding';
 
 // ---------------------------------------------------------------------------
 // Pure booking logic (conflict checks, pricing, occurrence generation). Builds
@@ -81,15 +81,6 @@ export function createCourtBooking(
     };
   }
 
-  if (hasReachedBookingLimit(userBookings)) {
-    return {
-      ok: false,
-      created: [],
-      blocked: [],
-      error: 'You already have an upcoming booking. Cancel it before booking another slot.',
-    };
-  }
-
   if (input.durationHours > MAX_DURATION_HOURS) {
     return { ok: false, created: [], blocked: [], error: 'Bookings longer than 3 hours are not allowed.' };
   }
@@ -108,6 +99,7 @@ export function createCourtBooking(
 
   const created: Booking[] = [];
   const blocked: OccurrenceResult[] = [];
+  const now = Date.now();
   // Validate against existing bookings PLUS the ones we create in this batch.
   const runningExisting = [...existing];
 
@@ -115,6 +107,20 @@ export function createCourtBooking(
     const occEnd = calculateEndTime(occStart, input.durationHours);
     const startISO = occStart.toISOString();
     const endISO = occEnd.toISOString();
+
+    // B1: reject occurrences whose start is in the past. Otherwise they'd be
+    // instantly "completed", bypass the one-active-booking limit, and farm
+    // loyalty rewards. (The DB trigger enforces this authoritatively too.)
+    if (occStart.getTime() <= now) {
+      blocked.push({
+        date: occStart,
+        startTime: startISO,
+        endTime: endISO,
+        available: false,
+        reason: 'That start time is in the past.',
+      });
+      continue;
+    }
 
     // Determine which half (if any) this occurrence can take.
     let courtHalf: CourtHalf = 'full';
@@ -174,11 +180,15 @@ export function createCourtBooking(
   }
 
   if (created.length === 0) {
+    // Surface the actual reason when it isn't a court clash (e.g. past time).
+    const allPast = blocked.length > 0 && blocked.every((b) => b.reason === 'That start time is in the past.');
     return {
       ok: false,
       created,
       blocked,
-      error: 'This slot is unavailable because basketball and tennis share the same court.',
+      error: allPast
+        ? 'That start time is in the past. Pick a future slot.'
+        : 'This slot is unavailable because basketball and tennis share the same court.',
     };
   }
 

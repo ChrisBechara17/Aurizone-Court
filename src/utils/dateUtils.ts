@@ -7,6 +7,7 @@ import {
   parseISO,
   startOfDay,
 } from 'date-fns';
+import { OperatingHour } from '@/models';
 
 /** Combine a calendar date with an "HH:mm" time string into a Date. */
 export function combineDateAndTime(date: Date, time: string): Date {
@@ -62,7 +63,35 @@ export const LAST_START_HOUR = 23; // 11:00 PM — latest selectable start (11 P
 export const CLOSE_HOUR = 24; // midnight — sessions must finish by here
 export const SLOT_STEP_MINUTES = 30; // booking grid granularity
 
-const toTimeStr = (totalMinutes: number) => {
+export const DEFAULT_OPERATING_HOURS: OperatingHour[] = Array.from({ length: 7 }, (_, dayOfWeek) => ({
+  dayOfWeek,
+  openTime: '08:00',
+  closeTime: '24:00',
+  isClosed: false,
+}));
+
+// Peak pricing: bookings that START at or after this hour are peak-priced.
+// A booking starting before 4 PM stays off-peak even if it runs past 4 PM —
+// the START time alone decides. The server re-checks this authoritatively in
+// the Beirut timezone (see supabase/peak-pricing.sql); on the client we read the
+// device-local hour, which matches for anyone booking at the venue.
+export const PEAK_START_HOUR = 16; // 4:00 PM
+
+/** Whether a booking starting at this time is peak-priced (start ≥ 4 PM). */
+export function isPeakStart(start: Date): boolean {
+  return start.getHours() >= PEAK_START_HOUR;
+}
+
+/** Peak/off-peak label for a start time. */
+export const peakLabel = (start: Date): 'Peak' | 'Off-peak' =>
+  isPeakStart(start) ? 'Peak' : 'Off-peak';
+
+export const timeToMinutes = (time: string): number => {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + (m ?? 0);
+};
+
+export const toTimeStr = (totalMinutes: number) => {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -84,10 +113,30 @@ export function timeSlots(
   return slots;
 }
 
+export function timeSlotsForOperatingHours(hours: OperatingHour, stepMinutes = SLOT_STEP_MINUTES): string[] {
+  if (hours.isClosed) return [];
+  const open = timeToMinutes(hours.openTime);
+  const close = timeToMinutes(hours.closeTime);
+  const lastStart = close - stepMinutes;
+  const slots: string[] = [];
+  for (let t = open; t <= lastStart; t += stepMinutes) slots.push(toTimeStr(t));
+  return slots;
+}
+
+export function operatingHoursForDate(hours: OperatingHour[], date: Date): OperatingHour {
+  return hours.find((h) => h.dayOfWeek === date.getDay()) ?? DEFAULT_OPERATING_HOURS[date.getDay()];
+}
+
 /** Whether a booking starting at `time` for `durationHours` finishes by close (midnight). */
 export function fitsWithinHours(time: string, durationHours: number): boolean {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m + durationHours * 60 <= CLOSE_HOUR * 60;
+}
+
+export function fitsWithinOperatingHours(time: string, durationHours: number, hours: OperatingHour): boolean {
+  if (hours.isClosed) return false;
+  const start = timeToMinutes(time);
+  return start >= timeToMinutes(hours.openTime) && start + durationHours * 60 <= timeToMinutes(hours.closeTime);
 }
 
 export const isPast = (iso: string) => isBefore(parseISO(iso), new Date());

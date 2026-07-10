@@ -1,16 +1,17 @@
-import { useMemo } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail } from 'lucide-react-native';
+import { ArrowLeft, Bell, Mail } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { LoyaltyCard } from '@/components/LoyaltyCard';
 import { BookingCard } from '@/components/BookingCard';
 import { EmptyState } from '@/components/EmptyState';
+import { ErrorBanner } from '@/components/ErrorBanner';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
-import { computeLoyalty } from '@/utils/loyalty';
+import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
 import { bookingsFor } from '@/utils/adminUsers';
 import { parseISO } from 'date-fns';
@@ -22,8 +23,13 @@ export default function AdminUserScreen() {
   const user = useAppStore((s) => s.user);
   const users = useAppStore((s) => s.users);
   const bookings = useAppStore((s) => s.bookings);
-  const cancelBooking = useAppStore((s) => s.cancelBooking);
-  const toggleNoShow = useAppStore((s) => s.toggleNoShow);
+  const loyaltySettings = useAppStore((s) => s.loyaltySettings);
+  const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
+  const adminSendNotification = useAppStore((s) => s.adminSendNotification);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteMessage, setNoteMessage] = useState('');
+  const [noteErr, setNoteErr] = useState<string | null>(null);
+  const [noteOk, setNoteOk] = useState<string | null>(null);
 
   const target = users.find((u) => u.id === id);
 
@@ -40,7 +46,10 @@ export default function AdminUserScreen() {
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
   if (!target) return <Redirect href="/admin-users" />;
 
-  const loyalty = computeLoyalty(userBookings);
+  const userTransactions = loyaltyTransactions.filter((tx) => tx.userId === target.id);
+  const loyalty = userTransactions.length > 0
+    ? computeLoyaltyFromTransactions(userTransactions, userBookings)
+    : computeLoyalty(userBookings, loyaltySettings);
   const standing = computeStanding(userBookings);
   const initials = target.name
     .split(' ')
@@ -48,6 +57,16 @@ export default function AdminUserScreen() {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+
+  const onSendNotification = async () => {
+    setNoteErr(null);
+    setNoteOk(null);
+    const res = await adminSendNotification({ userId: target.id, title: noteTitle, message: noteMessage });
+    if (!res.ok) return setNoteErr(res.error ?? 'Could not send notification.');
+    setNoteTitle('');
+    setNoteMessage('');
+    setNoteOk('Notification sent.');
+  };
 
   return (
     <ScreenContainer>
@@ -149,6 +168,49 @@ export default function AdminUserScreen() {
           </Text>
         </Animated.View>
 
+        <Animated.View entering={FadeInDown.delay(150).duration(350)} style={{ gap: 10 }}>
+          <SectionTitle text="Send Notification" />
+          <GlassCard accent={ADMIN}>
+            <View style={{ gap: 10 }}>
+              <TextInput
+                value={noteTitle}
+                onChangeText={setNoteTitle}
+                placeholder="Title"
+                placeholderTextColor={COLORS.textFaint}
+                style={inputStyle()}
+              />
+              <TextInput
+                value={noteMessage}
+                onChangeText={setNoteMessage}
+                placeholder="Message"
+                placeholderTextColor={COLORS.textFaint}
+                multiline
+                style={[inputStyle(), { minHeight: 86, textAlignVertical: 'top' }]}
+              />
+              <ErrorBanner message={noteErr} />
+              {noteOk ? <Text style={{ color: COLORS.success, fontSize: 13, fontWeight: '700' }}>{noteOk}</Text> : null}
+              <Pressable
+                onPress={onSendNotification}
+                style={({ pressed }) => ({
+                  opacity: pressed ? 0.75 : 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  paddingVertical: 12,
+                  borderRadius: 14,
+                  backgroundColor: `${ADMIN}22`,
+                  borderWidth: 1,
+                  borderColor: `${ADMIN}66`,
+                })}
+              >
+                <Bell size={16} color={ADMIN} />
+                <Text style={{ color: ADMIN, fontWeight: '900', fontSize: 14 }}>Send Notification</Text>
+              </Pressable>
+            </View>
+          </GlassCard>
+        </Animated.View>
+
         {/* Bookings */}
         <Animated.View entering={FadeInDown.delay(180).duration(350)} style={{ gap: 12 }}>
           <SectionTitle text={`Bookings (${userBookings.length})`} />
@@ -159,8 +221,7 @@ export default function AdminUserScreen() {
               <BookingCard
                 key={b.id}
                 booking={b}
-                onCancel={b.status === 'confirmed' ? (bid) => cancelBooking(bid, true) : undefined}
-                onToggleNoShow={toggleNoShow}
+                onPress={() => router.push(`/admin-booking?id=${b.id}`)}
               />
             ))
           )}
@@ -180,4 +241,17 @@ function SectionTitle({ text }: { text: string }) {
       </Text>
     </View>
   );
+}
+
+function inputStyle() {
+  return {
+    backgroundColor: COLORS.chip,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: COLORS.text,
+    fontSize: 14,
+  } as const;
 }

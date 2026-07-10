@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { CalendarX2 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { BookingCard } from '@/components/BookingCard';
 import { EmptyState } from '@/components/EmptyState';
 import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
-import { CANCEL_CUTOFF_HOURS, canUserCancel } from '@/utils/accountStanding';
 import { parseISO } from 'date-fns';
 
 type Filter = 'upcoming' | 'past' | 'cancelled';
@@ -20,8 +20,9 @@ const FILTERS: { key: Filter; label: string }[] = [
 export default function BookingsScreen() {
   useThemeName();
   const user = useAppStore((s) => s.user);
+  const router = useRouter();
   const allBookings = useAppStore((s) => s.bookings);
-  const cancel = useAppStore((s) => s.cancelBooking);
+  const supportPhone = useAppStore((s) => s.supportPhone);
   const [filter, setFilter] = useState<Filter>('upcoming');
 
   const list = useMemo(() => {
@@ -95,22 +96,17 @@ export default function BookingsScreen() {
               }
             />
           ) : (
-            list.map((b, i) => {
-              const cancellable = filter === 'upcoming' && canUserCancel(b);
-              return (
-                <Animated.View key={b.id} entering={FadeInDown.delay(i * 50).duration(300)}>
-                  <BookingCard
-                    booking={b}
-                    onCancel={cancellable ? (id) => cancel(id) : undefined}
-                    cancelNote={
-                      filter === 'upcoming' && !cancellable
-                        ? `Can't cancel within ${CANCEL_CUTOFF_HOURS}h of start`
-                        : undefined
-                    }
-                  />
-                </Animated.View>
-              );
-            })
+            list.map((b, i) => (
+              <Animated.View key={b.id} entering={FadeInDown.delay(i * 50).duration(300)}>
+                {/* Users can't self-cancel — only an admin can. Upcoming bookings
+                    show a "Call to cancel" action pointing at the front desk. */}
+                <BookingCard
+                  booking={b}
+                  cancelContactPhone={filter === 'upcoming' ? supportPhone : undefined}
+                  onPress={() => router.push(`/booking-detail?id=${b.id}`)}
+                />
+              </Animated.View>
+            ))
           )}
         </ScrollView>
       </View>

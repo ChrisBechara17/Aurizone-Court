@@ -7,6 +7,11 @@
 
 export const ADMIN_CONTACTS = ['admin@courthub.com', '0000000000', 'admin'];
 
+// Front-desk number shown to users who want to cancel a booking. Users can no
+// longer cancel in-app — only an admin can — so they're directed to call.
+// TODO: replace with the real front-desk phone number.
+export const SUPPORT_PHONE = '+1 (555) 000-0000';
+
 /** Normalize a contact for comparison (lowercase, strip spaces/dashes/+). */
 const normalize = (v: string) => v.trim().toLowerCase().replace(/[\s\-()+]/g, '');
 
