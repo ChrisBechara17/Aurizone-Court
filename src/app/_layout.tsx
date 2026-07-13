@@ -14,6 +14,7 @@ const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
 Sentry.init({
   dsn: sentryDsn,
   enabled: !!sentryDsn,
+  debug: __DEV__,
   environment: __DEV__ ? 'development' : 'production',
   sendDefaultPii: false,
   tracesSampleRate: 0.1,

@@ -94,6 +94,7 @@ const inputStyleFor = () =>
 
 export default function AdminScreen() {
   const ADMIN = COLORS.warning;
+  const sentryProjectId = process.env.EXPO_PUBLIC_SENTRY_DSN?.split('/').filter(Boolean).at(-1);
   const inputStyle = inputStyleFor();
   const router = useRouter();
   const user = useAppStore((s) => s.user);
@@ -1588,7 +1589,7 @@ export default function AdminScreen() {
               <HealthRow label="Security events" value={securityEvents.length ? `${securityEvents.length} recent` : 'None'} good />
               <HealthRow
                 label="Crash monitoring"
-                value={process.env.EXPO_PUBLIC_SENTRY_DSN ? 'Configured' : 'Disabled'}
+                value={sentryProjectId ? `Project ${sentryProjectId}` : 'Disabled'}
                 good={!!process.env.EXPO_PUBLIC_SENTRY_DSN}
               />
               <HealthRow
@@ -1626,9 +1627,9 @@ export default function AdminScreen() {
                       if (!process.env.EXPO_PUBLIC_SENTRY_DSN || testingSentry) return;
                       setTestingSentry(true);
                       setSentryTestResult(null);
-                      const eventId = Sentry.captureException(new Error('RizeON Sentry integration test'));
+                      const eventId = Sentry.captureMessage('RizeON mobile SDK test', 'error');
                       const sent = await Sentry.flush();
-                      setSentryTestResult(sent ? `Test sent (${eventId.slice(0, 8)})` : 'Test timed out.');
+                      setSentryTestResult(sent ? `Test sent: ${eventId}` : `Test timed out: ${eventId}`);
                       setTestingSentry(false);
                     }}
                     disabled={!process.env.EXPO_PUBLIC_SENTRY_DSN || testingSentry}
