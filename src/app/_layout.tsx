@@ -15,6 +15,10 @@ Sentry.init({
   dsn: sentryDsn,
   enabled: !!sentryDsn,
   debug: __DEV__,
+  // Development clients can outlive native dependency/config changes. Use the
+  // JS transport there for deterministic testing; release builds retain native
+  // crash capture for Android/iOS failures.
+  enableNative: !__DEV__,
   environment: __DEV__ ? 'development' : 'production',
   sendDefaultPii: false,
   tracesSampleRate: 0.1,
