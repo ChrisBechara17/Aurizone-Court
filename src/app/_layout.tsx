@@ -1,6 +1,7 @@
 import '../global.css';
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -9,14 +10,28 @@ import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { COLORS } from '@/constants/colors';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
-export default function RootLayout() {
+const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+Sentry.init({
+  dsn: sentryDsn,
+  enabled: !!sentryDsn,
+  environment: __DEV__ ? 'development' : 'production',
+  sendDefaultPii: false,
+  tracesSampleRate: 0.1,
+});
+
+function RootLayout() {
   const hydrate = useAppStore((s) => s.hydrate);
+  const userId = useAppStore((s) => s.user?.id ?? null);
   useThemeName(); // re-render chrome (status bar / background) on theme change
   useRealtimeSync();
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    Sentry.setUser(userId ? { id: userId } : null);
+  }, [userId]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navBg }}>
@@ -51,3 +66,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default Sentry.wrap(RootLayout);

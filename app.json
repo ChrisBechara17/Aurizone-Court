@@ -43,7 +43,8 @@
           "color": "#3ad7ff"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": true
