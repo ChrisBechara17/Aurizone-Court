@@ -8,9 +8,14 @@
     "scheme": "rizeon",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aurizone.rizeon",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.aurizone.rizeon",
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#05060f",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
@@ -42,6 +47,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "243b870f-83c9-4212-a52b-e41854a9d0cc"
+      }
+    },
+    "owner": "chris_17"
   }
 }

@@ -63,6 +63,19 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
     - Prevents non-admin booking lifecycle/loyalty abuse.
     - Revokes anonymous access to `court_occupancy`.
 
+15. `security-boundary.sql`
+    - Adds security events, server-only rate limiting, strict booking immutability,
+      and the trusted Edge Function foundation.
+    - Deploy the functions and follow `SECURITY_DEPLOYMENT.md` after this step.
+
+16. `security-lockdown.sql` (final production step only)
+    - Revokes legacy direct writes after secure-write testing passes.
+    - Do not run during initial setup or before Edge Functions are deployed.
+
+17. `post-lockdown-integrity.sql`
+    - Corrects paid-only free rewards and installs transactional service-role RPCs.
+    - Deploy the updated Edge Functions immediately after applying it.
+
 ## After Existing Project Updates
 
 If the database already exists and you are applying the newest app changes, run:
@@ -73,6 +86,12 @@ If the database already exists and you are applying the newest app changes, run:
 4. `push-readiness.sql`
 5. `harden-booking-integrity.sql`
 6. `harden-security.sql`
+7. `security-boundary.sql`
+
+Deploy and test Edge Functions next. Run `security-lockdown.sql` only after the
+full secure-write smoke test described in `SECURITY_DEPLOYMENT.md` passes.
+For an already locked project, run `post-lockdown-integrity.sql` next and then
+redeploy all secure mutation Edge Functions.
 
 Run `harden-security.sql` last because it references columns created by
 `operations-upgrades.sql`.

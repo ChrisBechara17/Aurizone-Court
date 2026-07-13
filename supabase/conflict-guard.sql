@@ -86,8 +86,13 @@ begin
 end;
 $$;
 
+-- Fires on INSERT and on any UPDATE that moves/retargets a booking, so a
+-- reschedule (or a direct PATCH of start_time/end_time) can't drop a booking on
+-- top of a maintenance block — the booking-vs-booking exclusion constraint
+-- already covers UPDATE, but booking-vs-block only runs through this trigger.
 drop trigger if exists trg_reject_booking_on_block on public.bookings;
 create trigger trg_reject_booking_on_block
-  before insert on public.bookings
+  before insert or update of start_time, end_time, court_id, uses_main_court, status
+  on public.bookings
   for each row
   execute function public.reject_booking_on_block();

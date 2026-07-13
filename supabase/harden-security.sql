@@ -40,6 +40,37 @@ create trigger trg_prevent_self_admin_promotion
   for each row
   execute function public.prevent_self_admin_promotion();
 
+-- ---- 1b) users: block self-granted admin via INSERT -----------------------
+-- The UPDATE guard above stops PATCHing is_admin=true after the fact, but the
+-- "users insert own profile" RLS policy (policies.sql) lets a client control the
+-- whole insert payload — including is_admin. Two ways to abuse that: call
+-- POST /rest/v1/users directly with {"is_admin":true}, or (in older builds) sign
+-- up with the name "admin". Force is_admin false for any authenticated (client)
+-- insert so a normal user can never create their profile row already-admin.
+-- service_role / SQL editor callers (auth.role() <> 'authenticated') are
+-- unaffected, so the documented manual promotion command
+--   update public.users set is_admin = true where phone_or_email = '…';
+-- still works.
+create or replace function public.force_user_insert_not_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.role() = 'authenticated' then
+    new.is_admin := false;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_force_user_insert_not_admin on public.users;
+create trigger trg_force_user_insert_not_admin
+  before insert on public.users
+  for each row
+  execute function public.force_user_insert_not_admin();
+
 -- ---- 2) bookings: normal users may only cancel, nothing else --------------
 -- Also enforces the 3-hour cancel cutoff server-side (mirrors the app's
 -- CANCEL_CUTOFF_HOURS in src/utils/accountStanding.ts — keep the two in sync).

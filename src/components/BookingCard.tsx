@@ -122,7 +122,7 @@ export function BookingCard({ booking, onCancel, cancelNote, onToggleNoShow, can
           borderTopColor: COLORS.cardBorder,
         }}
       >
-        {booking.isFreeReward ? (
+        {booking.isFreeReward && booking.totalPrice === 0 ? (
           <Text style={{ color: COLORS.success, fontWeight: '800', fontSize: 16 }}>
             Free 🎁
             <Text style={{ color: COLORS.textFaint, fontWeight: '500', fontSize: 12 }}> · reward</Text>

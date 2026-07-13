@@ -45,7 +45,7 @@ export function courtRate(
 // Business constraints.
 // Bookings longer than 3h are not allowed; ≤3h auto-confirm.
 export const MAX_DURATION_HOURS = 3;
-// Selectable durations (in hours): 30 min, 1h, 1h 30m, 2h.
-export const ALLOWED_DURATIONS = [0.5, 1, 1.5, 2] as const;
+// Selectable durations (in hours): 30 min through the 3-hour business limit.
+export const ALLOWED_DURATIONS = [0.5, 1, 1.5, 2, 3] as const;
 export const REPEAT_OPTIONS = [2, 4, 8] as const; // weeks
 export const AUTO_CONFIRM_MAX_MINUTES = MAX_DURATION_HOURS * 60;

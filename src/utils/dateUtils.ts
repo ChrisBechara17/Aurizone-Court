@@ -1,4 +1,5 @@
 import {
+  addDays,
   addMinutes,
   addWeeks,
   format,
@@ -54,7 +55,9 @@ export const fmtMonth = (d: Date) => format(d, 'MMM');
 /** Build the next `count` selectable days starting today. */
 export function upcomingDays(count: number): Date[] {
   const today = startOfDay(new Date());
-  return Array.from({ length: count }, (_, i) => addMinutes(today, i * 24 * 60));
+  // addDays, not addMinutes * 1440: a DST transition makes a calendar day 23 or
+  // 25 hours, so a fixed-minutes step would drift onto the wrong day.
+  return Array.from({ length: count }, (_, i) => addDays(today, i));
 }
 
 // Court operating hours.
@@ -79,7 +82,14 @@ export const PEAK_START_HOUR = 16; // 4:00 PM
 
 /** Whether a booking starting at this time is peak-priced (start ≥ 4 PM). */
 export function isPeakStart(start: Date): boolean {
-  return start.getHours() >= PEAK_START_HOUR;
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Beirut',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(start).find((part) => part.type === 'hour')?.value,
+  );
+  return hour >= PEAK_START_HOUR;
 }
 
 /** Peak/off-peak label for a start time. */
@@ -130,7 +140,7 @@ export function operatingHoursForDate(hours: OperatingHour[], date: Date): Opera
 /** Whether a booking starting at `time` for `durationHours` finishes by close (midnight). */
 export function fitsWithinHours(time: string, durationHours: number): boolean {
   const [h, m] = time.split(':').map(Number);
-  return h * 60 + m + durationHours * 60 <= CLOSE_HOUR * 60;
+  return h * 60 + (m ?? 0) + durationHours * 60 <= CLOSE_HOUR * 60;
 }
 
 export function fitsWithinOperatingHours(time: string, durationHours: number, hours: OperatingHour): boolean {

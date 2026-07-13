@@ -7,10 +7,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { COLORS } from '@/constants/colors';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 export default function RootLayout() {
   const hydrate = useAppStore((s) => s.hydrate);
   useThemeName(); // re-render chrome (status bar / background) on theme change
+  useRealtimeSync();
 
   useEffect(() => {
     void hydrate();
@@ -40,6 +42,7 @@ export default function RootLayout() {
           <Stack.Screen name="booking-detail" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="availability" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          <Stack.Screen name="admin-mfa" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin-users" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin-user" options={{ presentation: 'card', animation: 'slide_from_right' }} />
           <Stack.Screen name="admin-booking" options={{ presentation: 'card', animation: 'slide_from_right' }} />

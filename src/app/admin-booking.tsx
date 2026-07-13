@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, CheckCircle2, ChevronRight, UserX, X } from 'lucide-react-native';
@@ -32,6 +32,7 @@ export default function AdminBookingScreen() {
   const [cancelReason, setCancelReason] = useState('');
   const [noShowReason, setNoShowReason] = useState('');
   const [actionErr, setActionErr] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState(new Date());
   const [rescheduleTime, setRescheduleTime] = useState('12:00');
   const [rescheduleDuration, setRescheduleDuration] = useState(1);
@@ -39,13 +40,17 @@ export default function AdminBookingScreen() {
 
   const booking = bookings.find((b) => b.id === id);
 
-  useEffect(() => {
-    if (!booking) return;
+  // Seed the reschedule draft from the booking, re-seeding when the booking id
+  // changes. Adjust during render instead of in an effect; the undefined sentinel
+  // forces the initial seed on the first render that has a booking.
+  const [prevBookingId, setPrevBookingId] = useState<string | undefined>(undefined);
+  if (booking && booking.id !== prevBookingId) {
+    setPrevBookingId(booking.id);
     const startDate = parseISO(booking.startTime);
     setRescheduleDate(startDate);
     setRescheduleTime(toHHmm(startDate));
     setRescheduleDuration(booking.durationMinutes / 60);
-  }, [booking?.id]);
+  }
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
   if (!booking) return <Redirect href="/admin" />;
@@ -53,38 +58,47 @@ export default function AdminBookingScreen() {
   const bookedBy = users.find((u) => u.id === booking.userId);
   const start = parseISO(booking.startTime);
   const peak = booking.bookingType === 'court' ? isPeakStart(start) : false;
+  // eslint-disable-next-line react-hooks/purity -- intentional current-time read to show whether the booking has started; re-reads each render as intended
   const hasStarted = start.getTime() <= Date.now();
 
   const onCancel = async () => {
+    if (submitting) return;
     setActionErr(null);
     const reason = cancelReason.trim();
     if (!reason) return setActionErr('A cancellation reason is required.');
-    const res = await cancelBooking(booking.id, true, reason);
+    setSubmitting(true);
+    const res = await cancelBooking(booking.id, true, reason).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not cancel booking.');
   };
 
   const onComplete = async () => {
+    if (submitting) return;
     setActionErr(null);
-    const res = await markBookingCompleted(booking.id);
+    setSubmitting(true);
+    const res = await markBookingCompleted(booking.id).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not complete booking.');
   };
 
   const onNoShow = async () => {
+    if (submitting) return;
     setActionErr(null);
     const reason = noShowReason.trim();
     if (!reason) return setActionErr('A no-show reason is required.');
-    const res = await markBookingNoShow(booking.id, reason);
+    setSubmitting(true);
+    const res = await markBookingNoShow(booking.id, reason).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not mark no-show.');
   };
 
   const onReschedule = async () => {
+    if (submitting) return;
     setActionErr(null);
+    setSubmitting(true);
     const res = await rescheduleBooking(booking.id, {
       date: rescheduleDate,
       startTime: rescheduleTime,
       durationHours: rescheduleDuration,
       overrideOperatingHours: overrideHours,
-    });
+    }).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not reschedule booking.');
   };
 
@@ -156,7 +170,7 @@ export default function AdminBookingScreen() {
                     label="Cancel Booking"
                     color={COLORS.danger}
                     icon={<X size={16} color={COLORS.danger} />}
-                    disabled={booking.status !== 'confirmed'}
+                    disabled={submitting || booking.status !== 'confirmed'}
                     onPress={onCancel}
                   />
 
@@ -184,6 +198,7 @@ export default function AdminBookingScreen() {
                     label="Reschedule Booking"
                     color={ADMIN}
                     icon={<ChevronRight size={16} color={ADMIN} />}
+                    disabled={submitting}
                     onPress={onReschedule}
                   />
 
@@ -193,7 +208,7 @@ export default function AdminBookingScreen() {
                         label="Mark Completed"
                         color={COLORS.success}
                         icon={<CheckCircle2 size={16} color={COLORS.success} />}
-                        disabled={booking.status === 'completed'}
+                        disabled={submitting || booking.status === 'completed'}
                         onPress={onComplete}
                       />
                       <TextInput
@@ -207,7 +222,7 @@ export default function AdminBookingScreen() {
                         label="Mark No-show"
                         color={COLORS.danger}
                         icon={<UserX size={16} color={COLORS.danger} />}
-                        disabled={!!booking.noShow}
+                        disabled={submitting || !!booking.noShow}
                         onPress={onNoShow}
                       />
                     </>

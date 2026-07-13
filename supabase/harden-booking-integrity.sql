@@ -36,11 +36,14 @@ begin
     new.uses_main_court := true;
   end if;
 
-  -- B1: reject brand-new bookings whose start is already in the past. A past
-  -- booking is instantly "completed", so it bypasses the one-active-booking
-  -- limit and farms loyalty rewards. Only guard INSERTs so cancels/updates of
-  -- historical rows still work.
-  if tg_op = 'INSERT' and new.status = 'confirmed' and new.start_time <= now() then
+  -- B1: reject bookings whose confirmed start is in the past. A past booking is
+  -- instantly "completed", so it bypasses booking limits and farms loyalty
+  -- rewards. On INSERT any past start is rejected; on UPDATE only reject when the
+  -- start is being MOVED into the past — so completing/cancelling historical rows
+  -- (which don't change start_time) still works, but a reschedule into the past
+  -- does not.
+  if new.status = 'confirmed' and new.start_time <= now()
+     and (tg_op = 'INSERT' or new.start_time is distinct from old.start_time) then
     raise exception 'Bookings must start in the future.'
       using errcode = 'check_violation';
   end if;

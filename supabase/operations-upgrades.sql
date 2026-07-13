@@ -61,6 +61,35 @@ create policy "users mark own notifications read" on public.user_notifications
   for update using (user_id = auth.uid() or public.is_admin())
   with check (user_id = auth.uid() or public.is_admin());
 
+create or replace function public.restrict_user_notification_updates()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if auth.role() = 'authenticated' and not public.is_admin() then
+    if new.user_id is distinct from old.user_id
+       or new.title is distinct from old.title
+       or new.message is distinct from old.message
+       or new.type is distinct from old.type
+       or new.related_entity_type is distinct from old.related_entity_type
+       or new.related_entity_id is distinct from old.related_entity_id
+       or new.created_at is distinct from old.created_at then
+      raise exception 'Users may only mark their own notifications as read.'
+        using errcode = 'insufficient_privilege';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_restrict_user_notification_updates on public.user_notifications;
+create trigger trg_restrict_user_notification_updates
+  before update on public.user_notifications
+  for each row
+  execute function public.restrict_user_notification_updates();
+
 drop policy if exists "admins create notifications" on public.user_notifications;
 create policy "admins create notifications" on public.user_notifications
   for insert with check (public.is_admin());

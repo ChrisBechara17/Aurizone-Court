@@ -98,11 +98,15 @@ export async function registerForPushToken(): Promise<{ token: string | null; re
 export async function sendExpoPush(tokens: string[], title: string, body: string, data: Record<string, unknown> = {}) {
   if (tokens.length === 0) return;
   try {
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data }))),
-    });
+    const uniqueTokens = [...new Set(tokens)];
+    for (let index = 0; index < uniqueTokens.length; index += 100) {
+      const chunk = uniqueTokens.slice(index, index + 100);
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk.map((to) => ({ to, title, body, data }))),
+      });
+    }
   } catch {
     // Push is best-effort; in-app notifications remain the source of truth.
   }

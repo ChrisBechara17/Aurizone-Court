@@ -32,13 +32,14 @@ export default function HomeScreen() {
   const pricing = useAppStore((s) => s.pricing);
   const loyaltySettings = useAppStore((s) => s.loyaltySettings);
   const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
-  const bookings = allBookings.filter((b) => b.userId === (user?.id ?? 'demo-user'));
+  const bookings = user ? allBookings.filter((b) => b.userId === user.id) : [];
   const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
   const loyalty = myTransactions.length > 0
     ? computeLoyaltyFromTransactions(myTransactions, bookings)
     : computeLoyalty(bookings, loyaltySettings);
 
   const upcoming = bookings
+    // eslint-disable-next-line react-hooks/purity -- current-time read to filter upcoming bookings; re-reads each render as intended
     .filter((b) => b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now())
     .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
   // Show the next few upcoming bookings, not just one.
@@ -80,7 +81,7 @@ export default function HomeScreen() {
         {/* Admin banner (admins only) */}
         {user?.isAdmin ? (
           <Animated.View entering={FadeInDown.delay(40).duration(400)} style={{ paddingHorizontal: 20 }}>
-            <Pressable onPress={() => router.push('/admin')} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.99 : 1 }] })}>
+            <Pressable onPress={() => router.push('/admin-mfa')} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.99 : 1 }] })}>
               <LinearGradient
                 colors={[COLORS.warning, '#ff9d2f']}
                 start={{ x: 0, y: 0 }}

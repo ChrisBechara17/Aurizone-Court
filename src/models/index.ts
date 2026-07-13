@@ -160,6 +160,15 @@ export interface SchemaMigration {
   appliedAt: string;
 }
 
+export interface SecurityEvent {
+  id: string;
+  actorUserId: string | null;
+  action: string;
+  outcome: 'denied' | 'rate_limited' | 'invalid_payload' | 'authorization_failed';
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface PushToken {
   id: string;
   userId: string;

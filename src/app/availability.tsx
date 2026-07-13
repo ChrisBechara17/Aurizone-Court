@@ -25,13 +25,14 @@ export default function AvailabilityScreen() {
   );
 
   const dayOccupants = occupancy.filter((b) => isSameDay(parseISO(b.startTime), date));
+  const dayBlocks = courtBlocks.filter((b) => isSameDay(parseISO(b.startTime), date));
   const dayHours = operatingHoursForDate(operatingHours, date);
   const totalHours = dayHours.isClosed ? 0 : (timeToMinutes(dayHours.closeTime) - timeToMinutes(dayHours.openTime)) / 60;
   // B3: count physical court-hours, not the sum of every booking's duration.
   // Two concurrent half-court bookings share the same wall-clock hour, so merge
   // overlapping intervals and measure their union instead of double-counting.
   const bookedHours = mergedHours(
-    dayOccupants.map((b) => ({
+    [...dayOccupants, ...dayBlocks].map((b) => ({
       start: parseISO(b.startTime).getTime(),
       end: parseISO(b.endTime).getTime(),
     })),
@@ -42,7 +43,7 @@ export default function AvailabilityScreen() {
     <ScreenContainer>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 18 }} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))} hitSlop={12}>
             <View
               style={{
                 width: 42,
@@ -91,7 +92,7 @@ export default function AvailabilityScreen() {
                 <Text style={{ color: COLORS.danger, fontWeight: '900', fontSize: 16 }}>Court is closed this day</Text>
                 <Text style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 4 }}>Pick another date to view availability.</Text>
               </View>
-            ) : dayOccupants.length === 0 ? (
+            ) : dayOccupants.length === 0 && dayBlocks.length === 0 ? (
               <View style={{ paddingVertical: 4 }}>
                 <Text style={{ color: COLORS.success, fontWeight: '800', fontSize: 15, marginBottom: 12 }}>
                   Court is wide open ✨

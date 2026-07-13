@@ -205,7 +205,7 @@ export default function ProfileScreen() {
 
         {user?.isAdmin ? (
           <Animated.View entering={FadeInDown.delay(110).duration(400)}>
-            <Pressable onPress={() => router.push('/admin')} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.99 : 1 }] })}>
+            <Pressable onPress={() => router.push('/admin-mfa')} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.99 : 1 }] })}>
               <View
                 style={{
                   flexDirection: 'row',
@@ -417,7 +417,10 @@ export default function ProfileScreen() {
             </Text>
             <TextInput
               value={deleteText}
-              onChangeText={setDeleteText}
+              onChangeText={(value) => {
+                setDeleteText(value);
+                if (accountErr) setAccountErr(null);
+              }}
               autoCapitalize="characters"
               placeholder="DELETE"
               placeholderTextColor={COLORS.textFaint}
@@ -433,6 +436,7 @@ export default function ProfileScreen() {
                 fontWeight: '800',
               }}
             />
+            <ErrorBanner message={accountErr} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable
                 onPress={() => setDeleteOpen(false)}

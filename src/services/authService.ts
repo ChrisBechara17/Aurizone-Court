@@ -1,5 +1,4 @@
 import { supabase } from './supabaseClient';
-import { isAdminContact } from '@/constants/admin';
 import { User } from '@/models';
 
 type Result = { ok: boolean; error?: string };
@@ -20,6 +19,33 @@ function mapProfile(row: {
 }
 
 export const authService = {
+  async getMfaStatus() {
+    const [{ data: assurance, error: assuranceError }, { data: factors, error: factorsError }] = await Promise.all([
+      supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+      supabase.auth.mfa.listFactors(),
+    ]);
+    if (assuranceError) throw assuranceError;
+    if (factorsError) throw factorsError;
+    return {
+      currentLevel: assurance.currentLevel,
+      nextLevel: assurance.nextLevel,
+      verifiedFactors: factors.totp.filter((factor) => factor.status === 'verified'),
+    };
+  },
+
+  async enrollAdminTotp() {
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'RizeON Admin' });
+    if (error) throw error;
+    return data;
+  },
+
+  async verifyAdminTotp(factorId: string, code: string): Promise<Result> {
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+    if (challengeError) return { ok: false, error: challengeError.message };
+    const { error } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: code.trim() });
+    return error ? { ok: false, error: error.message } : { ok: true };
+  },
+
   /**
    * Create an auth account. When Supabase "Confirm email" is ON, no session is
    * returned yet — we return { needsVerification: true } and DEFER creating the
@@ -69,9 +95,10 @@ export const authService = {
       id: uid,
       name: name.trim(),
       phone_or_email: email.trim(),
-      // Demo convenience: admin contacts become admins. In production this
-      // should be enforced by a trigger, not set by the client.
-      is_admin: isAdminContact(email) || isAdminContact(name),
+      // is_admin is deliberately NOT set here. The column defaults to false and a
+      // BEFORE INSERT trigger (harden-security.sql) forces it false for any client
+      // insert, so admin can only be granted server-side (service role / SQL
+      // editor). Never trust a client-supplied admin flag.
     });
     if (error && !/duplicate|already exists/i.test(error.message)) {
       return { ok: false, error: error.message };
@@ -179,6 +206,9 @@ export const authService = {
 
     // Couldn't create the row (e.g. transient failure) — minimal fallback so the
     // user isn't logged out; the next launch will retry the self-heal.
-    return { id: uid, name: fallbackName, phoneOrEmail: email, isAdmin: isAdminContact(email) };
+    // Never infer admin from a client-side string. Admin is a server grant only
+    // (public.users.is_admin, re-checked by is_admin() in RLS); default to false
+    // on this heal-failure path so we can't render admin UI we can't back up.
+    return { id: uid, name: fallbackName, phoneOrEmail: email, isAdmin: false };
   },
 };

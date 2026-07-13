@@ -34,6 +34,10 @@ as $$
         applied_at = excluded.applied_at;
 $$;
 
+revoke all on function public.mark_schema_migration(text, text) from public;
+revoke all on function public.mark_schema_migration(text, text) from anon;
+revoke all on function public.mark_schema_migration(text, text) from authenticated;
+
 select public.mark_schema_migration('schema.sql', 'Base schema');
 select public.mark_schema_migration('policies.sql', 'RLS policies');
 select public.mark_schema_migration('schema-migrations.sql', 'Migration tracking');

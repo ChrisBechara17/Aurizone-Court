@@ -194,3 +194,10 @@ These are intentionally not part of this checklist:
 - admin roles
 - waitlist
 - staff/customer notes
+# Security boundary
+
+- Follow `supabase/SECURITY_DEPLOYMENT.md` before store submission.
+- Confirm all admin accounts enroll TOTP and reach `aal2`.
+- Confirm `EXPO_PUBLIC_SECURE_WRITES=true` in the release profile.
+- Confirm service-role and security hash secrets exist only in Supabase.
+- Apply `security-lockdown.sql` only after release-build smoke testing passes.

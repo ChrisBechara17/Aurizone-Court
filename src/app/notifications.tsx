@@ -20,7 +20,7 @@ export default function NotificationsScreen() {
     <ScreenContainer>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 50, gap: 16 }} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))} hitSlop={12}>
             <View
               style={{
                 width: 42,
@@ -52,7 +52,7 @@ export default function NotificationsScreen() {
         ) : (
           notifications.map((n, i) => (
             <Animated.View key={n.id} entering={FadeInDown.delay(i * 35).duration(280)}>
-              <Pressable onPress={() => void markRead(n.id)} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+              <Pressable onPress={() => { if (!n.readAt) void markRead(n.id); }} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
                 <GlassCard accent={n.readAt ? undefined : COLORS.neon}>
                   <View style={{ gap: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

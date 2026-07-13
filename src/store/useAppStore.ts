@@ -12,6 +12,7 @@ import {
   OperatingHour,
   Pricing,
   SchemaMigration,
+  SecurityEvent,
   SportType,
   User,
   UserNotification,
@@ -21,7 +22,7 @@ import { storageService } from '@/services/storageService';
 import { applyThemePalette, ThemeName } from '@/constants/colors';
 import { authService } from '@/services/authService';
 import { supabaseService } from '@/services/supabaseService';
-import { CourtBookingInput, createCourtBooking, CreateResult } from '@/services/bookingService';
+import { CourtBookingInput, createCourtBooking, CreateResult, uuidv4 } from '@/services/bookingService';
 import {
   cancelAllReminders,
   cancelReminder,
@@ -33,11 +34,11 @@ import {
 } from '@/services/notificationService';
 import { calculateEndTime, combineDateAndTime, DEFAULT_OPERATING_HOURS, fitsWithinOperatingHours, generateWeeklyOccurrences, isPeakStart, operatingHoursForDate } from '@/utils/dateUtils';
 import { hasCoachConflict, hasCourtConflict, intervalsOverlap } from '@/utils/conflictUtils';
-import { uuidv4 } from '@/services/bookingService';
 import { CANCEL_CUTOFF_HOURS, canUserCancel } from '@/utils/accountStanding';
 import { courtRate, DEFAULT_PRICING, MAX_DURATION_HOURS } from '@/constants/prices';
 import { SUPPORT_PHONE } from '@/constants/admin';
 import { DEFAULT_LOYALTY_SETTINGS, DEFAULT_TIER_PERKS } from '@/utils/loyalty';
+import { secureWritesEnabled } from '@/services/secureFunctionService';
 
 const PLACEHOLDER_COURT: Court = {
   id: '',
@@ -87,6 +88,7 @@ interface AppState {
   notifications: UserNotification[];
   loyaltyTransactions: LoyaltyTransaction[];
   schemaMigrations: SchemaMigration[];
+  securityEvents: SecurityEvent[];
   pushStatus: { supported: boolean; reason: string; token: string | null };
   lastRefreshedAt: string | null;
   refreshError: string | null;
@@ -115,11 +117,11 @@ interface AppState {
     repeatCount?: number;
   }) => Promise<ActionResult>;
   cancelBooking: (id: string, force?: boolean, reason?: string) => Promise<ActionResult>;
-  toggleNoShow: (id: string, reason?: string) => Promise<void>;
   markBookingCompleted: (id: string) => Promise<ActionResult>;
   markBookingNoShow: (id: string, reason: string) => Promise<ActionResult>;
   rescheduleBooking: (id: string, input: { date: Date; startTime: string; durationHours: number; overrideOperatingHours?: boolean }) => Promise<ActionResult>;
   registerPushToken: () => Promise<void>;
+  receiveRealtimeNotification: (notification: UserNotification) => void;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   adminSendNotification: (input: { userId: string; title: string; message: string }) => Promise<ActionResult>;
@@ -186,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => {
     summary: string,
     metadata: Record<string, unknown> = {},
   ) => {
+    if (secureWritesEnabled) return;
     const admin = get().user;
     if (!admin?.isAdmin) return;
     try {
@@ -211,6 +214,7 @@ export const useAppStore = create<AppState>((set, get) => {
     relatedEntityType?: string,
     relatedEntityId?: string,
   ) => {
+    if (secureWritesEnabled) return;
     try {
       const notification = await supabaseService.insertNotification({
         userId,
@@ -245,6 +249,7 @@ export const useAppStore = create<AppState>((set, get) => {
     description: string,
     adminId: string | null = null,
   ) => {
+    if (secureWritesEnabled) return;
     try {
       const tx = await supabaseService.insertLoyaltyTransaction({
         userId,
@@ -262,14 +267,8 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   };
 
-  const bookingPointBase = (userId: string): number => {
-    const previousGood = get().bookings.filter(
-      (b) => b.userId === userId && b.status !== 'cancelled' && !b.noShow,
-    ).length;
-    return previousGood === 0 ? get().loyaltySettings.firstBookingBonus : get().loyaltySettings.pointsPerBooking;
-  };
-
   const reverseBookingLoyalty = async (booking: Booking, reason: string) => {
+    if (secureWritesEnabled) return;
     const existing = get().loyaltyTransactions.filter((tx) => tx.bookingId === booking.id);
     const total = existing.reduce((sum, tx) => sum + tx.points, 0);
     if (total !== 0) {
@@ -297,6 +296,7 @@ export const useAppStore = create<AppState>((set, get) => {
     notifications: [],
     loyaltyTransactions: [],
     schemaMigrations: [],
+    securityEvents: [],
     pushStatus: { ...getPushSupportStatus(), token: null },
     lastRefreshedAt: null,
     refreshError: null,
@@ -324,8 +324,9 @@ export const useAppStore = create<AppState>((set, get) => {
     /** Load all shared data from Supabase. Resilient: one failing query does not
      *  discard the others (e.g. a missing view won't wipe the loaded court). */
     refresh: async () => {
+      const refreshUserId = get().user?.id ?? null;
       const isAdmin = !!get().user?.isAdmin;
-      const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR] = await Promise.allSettled([
+      const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR] = await Promise.allSettled([
         supabaseService.getMainCourt(),
         supabaseService.listCoaches(),
         supabaseService.listCourtBlocks(),
@@ -342,6 +343,7 @@ export const useAppStore = create<AppState>((set, get) => {
         supabaseService.listLoyaltyTransactions(),
         supabaseService.listOperatingHours(),
         isAdmin ? supabaseService.listSchemaMigrations() : Promise.resolve([] as SchemaMigration[]),
+        isAdmin ? supabaseService.listSecurityEvents() : Promise.resolve([] as SecurityEvent[]),
       ]);
 
       const patch: Partial<AppState> = {};
@@ -362,10 +364,14 @@ export const useAppStore = create<AppState>((set, get) => {
       if (loyaltyTxR.status === 'fulfilled') patch.loyaltyTransactions = loyaltyTxR.value;
       if (hoursR.status === 'fulfilled' && hoursR.value.length === 7) patch.operatingHours = hoursR.value;
       if (migrationsR.status === 'fulfilled') patch.schemaMigrations = migrationsR.value;
+      if (securityR.status === 'fulfilled') patch.securityEvents = securityR.value;
       patch.lastRefreshedAt = new Date().toISOString();
-      const failed = [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR]
+      const failed = [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR]
         .some((r) => r.status === 'rejected');
       patch.refreshError = failed ? 'Some data could not be refreshed.' : null;
+      // A detached refresh may outlive logout/account switching. Never let a
+      // previous session repopulate the next account's private state.
+      if ((get().user?.id ?? null) !== refreshUserId) return;
       set(patch);
     },
 
@@ -436,20 +442,61 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
+    receiveRealtimeNotification: (notification) => {
+      // Ignore late events from a channel that is being torn down during an
+      // account switch, and merge updates without duplicating unread items.
+      if (notification.userId !== get().user?.id) return;
+      const current = get().notifications;
+      const existingIndex = current.findIndex((item) => item.id === notification.id);
+      if (existingIndex < 0) {
+        set({ notifications: [notification, ...current] });
+        return;
+      }
+      const next = [...current];
+      next[existingIndex] = notification;
+      set({ notifications: next });
+    },
+
     logout: async () => {
       // S4: cancel this user's scheduled booking reminders so the next person to
       // sign in on this device doesn't receive notifications for someone else's
       // bookings (privacy + correctness).
       await cancelAllReminders();
+      const pushToken = get().pushStatus.token;
+      if (pushToken) {
+        try {
+          await supabaseService.deactivatePushToken(pushToken);
+        } catch {
+          // Push cleanup is best-effort; sign-out must still succeed.
+        }
+      }
       await authService.signOut();
-      set({ user: null, bookings: [], occupancy: [], users: [] });
+      set({
+        user: null,
+        bookings: [],
+        occupancy: [],
+        users: [],
+        notifications: [],
+        loyaltyTransactions: [],
+        auditLogs: [],
+        pushStatus: { ...getPushSupportStatus(), token: null },
+      });
     },
 
     deleteAccount: async () => {
       await cancelAllReminders();
       const res = await authService.deleteAccount();
       if (!res.ok) return res;
-      set({ user: null, bookings: [], occupancy: [], users: [] });
+      set({
+        user: null,
+        bookings: [],
+        occupancy: [],
+        users: [],
+        notifications: [],
+        loyaltyTransactions: [],
+        auditLogs: [],
+        pushStatus: { ...getPushSupportStatus(), token: null },
+      });
       return { ok: true };
     },
 
@@ -619,7 +666,8 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not create the coach booking.' };
       }
-      const stored = saved.length > 0 ? saved : created;
+      // Schedule reminders + persist their notification ids, same as bookCourt.
+      const stored = await attachReminders(saved.length > 0 ? saved : created);
       let goodCount = get().bookings.filter((b) => b.userId === input.userId && b.status !== 'cancelled' && !b.noShow).length;
       for (const b of stored) {
         const points = goodCount === 0 ? get().loyaltySettings.firstBookingBonus : get().loyaltySettings.pointsPerBooking;
@@ -695,18 +743,6 @@ export const useAppStore = create<AppState>((set, get) => {
       return { ok: true };
     },
 
-    toggleNoShow: async (id) => {
-      const target = get().bookings.find((b) => b.id === id);
-      if (!target) return;
-      const next = !target.noShow;
-      try {
-        await supabaseService.updateBooking(id, { noShow: next, noShowReason: next ? 'Marked by admin' : null });
-      } catch {
-        return;
-      }
-      set({ bookings: get().bookings.map((b) => (b.id === id ? { ...b, noShow: next } : b)) });
-    },
-
     markBookingCompleted: async (id) => {
       const target = get().bookings.find((b) => b.id === id);
       if (!target) return { ok: false, error: 'Booking not found.' };
@@ -760,7 +796,13 @@ export const useAppStore = create<AppState>((set, get) => {
 
       const start = combineDateAndTime(input.date, input.startTime);
       const end = calculateEndTime(start, input.durationHours);
-      if (end.getTime() <= Date.now()) return { ok: false, error: 'Pick a future time.' };
+      // Guard the START, not the end: a booking that has already started is
+      // instantly "completed" and bypasses limits / farms loyalty. Mirrors the
+      // create flow (bookingService.ts) and the server B1 guard.
+      const originalStart = new Date(target.startTime).getTime();
+      if (start.getTime() <= Date.now() && start.getTime() !== originalStart) {
+        return { ok: false, error: 'Pick a future time.' };
+      }
       const startTime = start.toISOString();
       const endTime = end.toISOString();
       const existing = get().bookings.filter((b) => b.id !== id);
@@ -800,14 +842,33 @@ export const useAppStore = create<AppState>((set, get) => {
         );
       }
 
+      // Persist the reschedule FIRST. Reminder wiring happens only after the DB
+      // write succeeds, so a failed write can never cancel the old reminder or
+      // leave a new reminder scheduled at a time that was never saved.
+      try {
+        await supabaseService.updateBooking(id, { startTime, endTime, durationMinutes, totalPrice });
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Could not reschedule booking.' };
+      }
+
       let notificationId: string | null = null;
       const updated: Booking = { ...target, startTime, endTime, durationMinutes, totalPrice, notificationId: null };
       try {
-        await cancelReminder(target.notificationId);
         notificationId = get().remindersEnabled ? await scheduleBookingReminder(updated) : null;
-        await supabaseService.updateBooking(id, { startTime, endTime, durationMinutes, totalPrice, notificationId });
-      } catch (e: any) {
-        return { ok: false, error: e?.message ?? 'Could not reschedule booking.' };
+      } catch {
+        notificationId = null;
+      }
+
+      // Persist the replacement id before cancelling the old reminder. If this
+      // write fails, remove the newly scheduled reminder so it cannot become an
+      // orphan. The old reminder is also cancelled because its time is stale.
+      try {
+        await supabaseService.updateBooking(id, { notificationId });
+        await cancelReminder(target.notificationId);
+      } catch {
+        await cancelReminder(notificationId);
+        await cancelReminder(target.notificationId);
+        notificationId = null;
       }
 
       set({
@@ -833,6 +894,8 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     markNotificationRead: async (id) => {
+      const notification = get().notifications.find((n) => n.id === id);
+      if (!notification || notification.readAt) return;
       try {
         await supabaseService.markNotificationRead(id);
       } catch {

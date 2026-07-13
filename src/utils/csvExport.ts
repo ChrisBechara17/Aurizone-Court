@@ -4,7 +4,10 @@ import * as Sharing from 'expo-sharing';
 export type CsvRow = Record<string, string | number | boolean | null | undefined>;
 
 function csvEscape(value: string | number | boolean | null | undefined): string {
-  const text = value == null ? '' : String(value);
+  const raw = value == null ? '' : String(value);
+  // Spreadsheet apps evaluate cells beginning with these characters as formulas.
+  // Prefix user-controlled values so exported names/reasons remain plain text.
+  const text = typeof value === 'string' && /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }

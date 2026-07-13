@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleProp, Text, TextInput, TextStyle, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Activity, ArrowLeft, ArrowDown, ArrowUp, Ban, Bell, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock, Download, DollarSign, GraduationCap, LayoutGrid, Megaphone, Pencil, Phone, Plus, RefreshCw, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react-native';
+import { Activity, ArrowLeft, ArrowDown, ArrowUp, Ban, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock, Download, DollarSign, GraduationCap, LayoutGrid, Megaphone, Pencil, Phone, Plus, RefreshCw, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
@@ -36,6 +36,8 @@ import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty'
 import { computeStanding } from '@/utils/accountStanding';
 import { shareCsv } from '@/utils/csvExport';
 import { bookingsFor } from '@/utils/adminUsers';
+import { authService } from '@/services/authService';
+import { secureWritesEnabled } from '@/services/secureFunctionService';
 
 type AdminTab = 'overview' | 'schedule' | 'bookings' | 'pricing' | 'coaches' | 'rules' | 'users' | 'audit' | 'health';
 type AdminGroup = 'operations' | 'business' | 'people' | 'system';
@@ -69,6 +71,8 @@ const REQUIRED_MIGRATIONS = [
   { key: 'harden-security.sql', label: 'Security hardening' },
   { key: 'push-readiness.sql', label: 'Push readiness' },
   { key: 'schema-migrations.sql', label: 'Migration tracking' },
+  { key: 'security-boundary.sql', label: 'Security boundary' },
+  { key: 'post-lockdown-integrity.sql', label: 'Transactional integrity' },
 ];
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -125,6 +129,7 @@ export default function AdminScreen() {
   const notifications = useAppStore((s) => s.notifications);
   const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
   const schemaMigrations = useAppStore((s) => s.schemaMigrations);
+  const securityEvents = useAppStore((s) => s.securityEvents);
   const pushStatus = useAppStore((s) => s.pushStatus);
 
   const [date, setDate] = useState<Date>(startOfDay(new Date()));
@@ -133,6 +138,17 @@ export default function AdminScreen() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [mfaReady, setMfaReady] = useState(false);
+
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    authService.getMfaStatus()
+      .then((status) => {
+        if (status.currentLevel === 'aal2') setMfaReady(true);
+        else router.replace('/admin-mfa');
+      })
+      .catch(() => router.replace('/admin-mfa'));
+  }, [router, user?.isAdmin]);
 
   // Coaching-session booking (admin books a coach into the selected slot).
   const [showCoach, setShowCoach] = useState(false);
@@ -199,7 +215,12 @@ export default function AdminScreen() {
   const [pSupport, setPSupport] = useState(supportPhone);
   const [supportErr, setSupportErr] = useState<string | null>(null);
   const [supportOk, setSupportOk] = useState<string | null>(null);
-  useEffect(() => setPSupport(supportPhone), [supportPhone]);
+  // Re-seed the draft when the stored value changes (adjust during render).
+  const [prevSupportPhone, setPrevSupportPhone] = useState(supportPhone);
+  if (supportPhone !== prevSupportPhone) {
+    setPrevSupportPhone(supportPhone);
+    setPSupport(supportPhone);
+  }
 
   const onSaveSupport = async () => {
     setSupportErr(null);
@@ -244,7 +265,15 @@ export default function AdminScreen() {
 
   const sortedRules = [...courtRules].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
-  useEffect(() => {
+  // Re-seed the pricing/loyalty draft when the stored values change (adjust
+  // during render instead of an effect). The signature + tierPerks reference
+  // mirror the old effect's dependency list.
+  const pricingSig = `${pricing.basketball}|${pricing.basketballPeak}|${pricing.basketballHalf}|${pricing.basketballHalfPeak}|${pricing.tennis}|${pricing.tennisPeak}|${pricing.ballMachineRate}|${loyaltySettings.pointsPerBooking}`;
+  const [prevPricingSig, setPrevPricingSig] = useState(pricingSig);
+  const [prevTierPerks, setPrevTierPerks] = useState(tierPerks);
+  if (pricingSig !== prevPricingSig || tierPerks !== prevTierPerks) {
+    setPrevPricingSig(pricingSig);
+    setPrevTierPerks(tierPerks);
     setPBasket(String(pricing.basketball));
     setPBasketPeak(String(pricing.basketballPeak));
     setPHalf(String(pricing.basketballHalf));
@@ -259,19 +288,14 @@ export default function AdminScreen() {
       gold: tierPerks.gold.join('\n'),
       platinum: tierPerks.platinum.join('\n'),
     });
-  }, [
-    pricing.basketball,
-    pricing.basketballPeak,
-    pricing.basketballHalf,
-    pricing.basketballHalfPeak,
-    pricing.tennis,
-    pricing.tennisPeak,
-    pricing.ballMachineRate,
-    loyaltySettings.pointsPerBooking,
-    tierPerks,
-  ]);
+  }
 
-  useEffect(() => setHoursDraft(operatingHours), [operatingHours]);
+  // Re-seed the hours draft when the stored value changes (adjust during render).
+  const [prevOperatingHours, setPrevOperatingHours] = useState(operatingHours);
+  if (operatingHours !== prevOperatingHours) {
+    setPrevOperatingHours(operatingHours);
+    setHoursDraft(operatingHours);
+  }
 
   const onSavePricing = async () => {
     setPriceErr(null);
@@ -305,6 +329,9 @@ export default function AdminScreen() {
     setHoursErr(null);
     setHoursOk(null);
     for (const h of hoursDraft) {
+      if (!h.isClosed && (!isValidOperatingTime(h.openTime, false) || !isValidOperatingTime(h.closeTime, true))) {
+        return setHoursErr('Use 24-hour HH:mm times. Only closing time may be 24:00.');
+      }
       if (!h.isClosed && timeStringToMinutes(h.closeTime) <= timeStringToMinutes(h.openTime)) {
         return setHoursErr('Close time must be after open time for every open day.');
       }
@@ -377,9 +404,9 @@ export default function AdminScreen() {
 
   const adminDayHours = operatingHoursForDate(operatingHours, date);
   const adminDaySlots = useMemo(() => timeSlotsForOperatingHours(adminDayHours), [adminDayHours]);
-  useEffect(() => {
-    if (adminDaySlots.length > 0 && !adminDaySlots.includes(time)) setTime(adminDaySlots[0]);
-  }, [adminDaySlots, time]);
+  // Snap the selected time into the day's valid slots (adjust during render;
+  // converges once `time` is one of adminDaySlots).
+  if (adminDaySlots.length > 0 && !adminDaySlots.includes(time)) setTime(adminDaySlots[0]);
 
   // Bookings for the selected day, sorted by start time.
   const dayBookings = useMemo(
@@ -393,6 +420,7 @@ export default function AdminScreen() {
   const filteredDayBookings = useMemo(() => {
     const q = bookingSearch.trim().toLowerCase();
     return dayBookings.filter((b) => {
+      // eslint-disable-next-line react-hooks/purity -- current-time read to classify upcoming vs past; re-reads each render as intended
       const isUpcoming = b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now();
       if (bookingStatusFilter === 'upcoming' && !isUpcoming) return false;
       if (bookingStatusFilter === 'completed' && b.status !== 'completed') return false;
@@ -429,6 +457,7 @@ export default function AdminScreen() {
   const activeCourtBlocks = useMemo(
     () =>
       courtBlocks
+        // eslint-disable-next-line react-hooks/purity -- current-time read to keep only upcoming blocks; re-reads each render as intended
         .filter((blk) => parseISO(blk.endTime).getTime() > Date.now())
         .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime()),
     [courtBlocks],
@@ -438,8 +467,10 @@ export default function AdminScreen() {
   // useMemos above would change the hook count when isAdmin flips while the
   // screen is mounted, violating the Rules of Hooks and crashing the app.
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
+  if (!mfaReady) return null;
 
   const upcomingCount = bookings.filter(
+    // eslint-disable-next-line react-hooks/purity -- current-time read to count upcoming bookings; re-reads each render as intended
     (b) => b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now(),
   ).length;
   const userCount = users.length;
@@ -1549,9 +1580,12 @@ export default function AdminScreen() {
               <HealthRow label="Notifications" value={String(notifications.length)} good />
               <HealthRow label="Operating hours" value={operatingHours.length === 7 ? '7 days loaded' : `${operatingHours.length} days`} good={operatingHours.length === 7} />
               <HealthRow label="Push support" value={pushStatus.token ? 'Token registered' : pushStatus.reason} good={pushStatus.supported && !!pushStatus.token} />
+              <HealthRow label="Secure writes" value={secureWritesEnabled ? 'Edge Functions' : 'Compatibility mode'} good={secureWritesEnabled} />
+              <HealthRow label="Admin MFA" value="AAL2 verified" good={mfaReady} />
+              <HealthRow label="Security events" value={securityEvents.length ? `${securityEvents.length} recent` : 'None'} good />
               <HealthRow
                 label="SQL migrations"
-                value={`${schemaMigrations.length}/${REQUIRED_MIGRATIONS.length} tracked`}
+                value={`${REQUIRED_MIGRATIONS.filter((m) => schemaMigrations.some((row) => row.key === m.key)).length}/${REQUIRED_MIGRATIONS.length} tracked`}
                 good={REQUIRED_MIGRATIONS.every((m) => schemaMigrations.some((row) => row.key === m.key))}
               />
               <HealthRow label="Last refresh" value={lastRefreshedAt ? `${fmtDate(lastRefreshedAt)} ${fmtTime(lastRefreshedAt)}` : 'Not yet'} good={!!lastRefreshedAt} />
@@ -1698,6 +1732,11 @@ function timeStringToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return Number.NaN;
   return h * 60 + m;
+}
+
+function isValidOperatingTime(time: string, allowEndOfDay: boolean): boolean {
+  if (allowEndOfDay && time === '24:00') return true;
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
 }
 
 function isInRevenueRange(date: Date, range: RevenueRange): boolean {

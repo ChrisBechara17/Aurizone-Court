@@ -1,4 +1,5 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Phone } from 'lucide-react-native';
 import { ScreenContainer } from '@/components/ScreenContainer';
@@ -16,14 +17,26 @@ export default function BookingDetailScreen() {
   const bookings = useAppStore((s) => s.bookings);
   const coaches = useAppStore((s) => s.coaches);
   const supportPhone = useAppStore((s) => s.supportPhone);
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const updateNow = () => setNow(Date.now());
+    updateNow();
+    const timer = setInterval(updateNow, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const booking = bookings.find((b) => b.id === id && b.userId === user?.id);
   if (!user) return <Redirect href="/auth" />;
   if (!booking) return <Redirect href="/(tabs)/bookings" />;
 
   const coach = coaches.find((c) => c.id === booking.coachId);
-  const active = booking.status === 'confirmed';
-  const total = booking.isFreeReward && booking.totalPrice === 0 ? 'Free reward' : `$${booking.totalPrice}`;
+  const active = now !== null
+    && booking.status === 'confirmed'
+    && !booking.noShow
+    && new Date(booking.startTime).getTime() > now;
+  const fullyFree = booking.isFreeReward && booking.totalPrice === 0;
+  const total = fullyFree ? 'Free reward' : `$${booking.totalPrice}`;
   const phoneDigits = supportPhone.replace(/[^\d+]/g, '');
 
   const rows = [
@@ -83,7 +96,7 @@ export default function BookingDetailScreen() {
             <View style={{ height: 1, backgroundColor: COLORS.cardBorder, marginVertical: 2 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={{ flex: 1, color: COLORS.text, fontSize: 16, fontWeight: '900' }}>Total</Text>
-              <Text style={{ color: booking.isFreeReward ? COLORS.success : COLORS.neon, fontSize: 22, fontWeight: '900' }}>{total}</Text>
+              <Text style={{ color: fullyFree ? COLORS.success : COLORS.neon, fontSize: 22, fontWeight: '900' }}>{total}</Text>
             </View>
           </View>
         </GlassCard>

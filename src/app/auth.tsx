@@ -15,6 +15,7 @@ interface FormValues {
   name: string;
   email: string;
   password: string;
+  confirmPassword: string;
 }
 
 export default function Auth() {
@@ -33,7 +34,7 @@ export default function Auth() {
     handleSubmit,
     getValues,
     formState: { isSubmitting },
-  } = useForm<FormValues>({ defaultValues: { name: '', email: '', password: '' } });
+  } = useForm<FormValues>({ defaultValues: { name: '', email: '', password: '', confirmPassword: '' } });
 
   const onSubmit = async (values: FormValues) => {
     setError(null);
@@ -42,6 +43,9 @@ export default function Auth() {
     if (!values.email.includes('@')) return setError('Enter a valid email address.');
     if (values.password.length < 6) return setError('Password must be at least 6 characters.');
     if (mode === 'signup' && values.name.trim().length < 2) return setError('Please enter your name.');
+    if (mode === 'signup' && values.password !== values.confirmPassword) {
+      return setError('Passwords do not match.');
+    }
 
     if (mode === 'signup') {
       const res = await signUp(values.name, values.email, values.password);
@@ -105,6 +109,15 @@ export default function Auth() {
                 ) : null}
                 <Field label="Email" placeholder="you@email.com" control={control} name="email" keyboardType="email-address" />
                 <Field label="Password" placeholder="At least 6 characters" control={control} name="password" isPassword />
+                {mode === 'signup' ? (
+                  <Field
+                    label="Confirm Password"
+                    placeholder="Enter your password again"
+                    control={control}
+                    name="confirmPassword"
+                    isPassword
+                  />
+                ) : null}
 
                 {mode === 'login' ? (
                   <Pressable

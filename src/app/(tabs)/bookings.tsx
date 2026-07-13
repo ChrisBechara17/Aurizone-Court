@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { CalendarX2 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
@@ -13,7 +13,7 @@ import { parseISO } from 'date-fns';
 type Filter = 'upcoming' | 'past' | 'cancelled';
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'upcoming', label: 'Upcoming' },
-  { key: 'past', label: 'Completed' },
+  { key: 'past', label: 'Past' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
@@ -24,19 +24,32 @@ export default function BookingsScreen() {
   const allBookings = useAppStore((s) => s.bookings);
   const supportPhone = useAppStore((s) => s.supportPhone);
   const [filter, setFilter] = useState<Filter>('upcoming');
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    const updateNow = () => setNow(Date.now());
+    updateNow();
+    const timer = setInterval(updateNow, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const list = useMemo(() => {
-    const bookings = allBookings.filter((b) => b.userId === (user?.id ?? 'demo-user'));
+    if (!user) return [];
+    const bookings = allBookings.filter((b) => b.userId === user.id);
     const sorted = [...bookings].sort(
       (a, b) => parseISO(b.startTime).getTime() - parseISO(a.startTime).getTime(),
     );
     if (filter === 'upcoming')
       return sorted
-        .filter((b) => b.status === 'confirmed')
+        .filter((b) => b.status === 'confirmed' && !b.noShow && parseISO(b.startTime).getTime() > now)
         .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
-    if (filter === 'past') return sorted.filter((b) => b.status === 'completed');
+    if (filter === 'past') {
+      return sorted.filter(
+        (b) => b.status !== 'cancelled' && (b.status === 'completed' || b.noShow || parseISO(b.startTime).getTime() <= now),
+      );
+    }
     return sorted.filter((b) => b.status === 'cancelled');
-  }, [allBookings, user, filter]);
+  }, [allBookings, user, filter, now]);
 
   return (
     <ScreenContainer>

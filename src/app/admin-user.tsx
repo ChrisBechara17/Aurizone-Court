@@ -29,6 +29,7 @@ export default function AdminUserScreen() {
   const [noteTitle, setNoteTitle] = useState('');
   const [noteMessage, setNoteMessage] = useState('');
   const [noteErr, setNoteErr] = useState<string | null>(null);
+  const [sendingNotification, setSendingNotification] = useState(false);
   const [noteOk, setNoteOk] = useState<string | null>(null);
 
   const target = users.find((u) => u.id === id);
@@ -59,9 +60,12 @@ export default function AdminUserScreen() {
     .toUpperCase();
 
   const onSendNotification = async () => {
+    if (sendingNotification) return;
     setNoteErr(null);
     setNoteOk(null);
-    const res = await adminSendNotification({ userId: target.id, title: noteTitle, message: noteMessage });
+    setSendingNotification(true);
+    const res = await adminSendNotification({ userId: target.id, title: noteTitle, message: noteMessage })
+      .finally(() => setSendingNotification(false));
     if (!res.ok) return setNoteErr(res.error ?? 'Could not send notification.');
     setNoteTitle('');
     setNoteMessage('');
@@ -191,8 +195,9 @@ export default function AdminUserScreen() {
               {noteOk ? <Text style={{ color: COLORS.success, fontSize: 13, fontWeight: '700' }}>{noteOk}</Text> : null}
               <Pressable
                 onPress={onSendNotification}
+                disabled={sendingNotification}
                 style={({ pressed }) => ({
-                  opacity: pressed ? 0.75 : 1,
+                  opacity: sendingNotification ? 0.55 : pressed ? 0.75 : 1,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -205,7 +210,7 @@ export default function AdminUserScreen() {
                 })}
               >
                 <Bell size={16} color={ADMIN} />
-                <Text style={{ color: ADMIN, fontWeight: '900', fontSize: 14 }}>Send Notification</Text>
+                <Text style={{ color: ADMIN, fontWeight: '900', fontSize: 14 }}>{sendingNotification ? 'Sending...' : 'Send Notification'}</Text>
               </Pressable>
             </View>
           </GlassCard>

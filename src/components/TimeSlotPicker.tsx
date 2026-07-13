@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { format, parse } from 'date-fns';
 import { Moon, Sun, Sunrise } from 'lucide-react-native';
@@ -37,9 +37,12 @@ export function TimeSlotPicker({ value, onChange, accent = COLORS.neon, unavaila
   const [period, setPeriod] = useState<PeriodKey>(periodOf(value));
 
   // Follow the selected value into its period (e.g. when parent resets time).
-  useEffect(() => {
+  // Adjust during render when `value` changes, instead of syncing in an effect.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setPeriod(periodOf(value));
-  }, [value]);
+  }
 
   const periodSlots = allSlots.filter((t) => periodOf(t) === period);
 

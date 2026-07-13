@@ -14,12 +14,14 @@ import {
   Pricing,
   PushToken,
   SchemaMigration,
+  SecurityEvent,
   SportType,
   User,
   UserNotification,
 } from '@/models';
 import { DEFAULT_PRICING } from '@/constants/prices';
 import { DEFAULT_LOYALTY_SETTINGS, DEFAULT_TIER_PERKS } from '@/utils/loyalty';
+import { invokeSecure, secureWritesEnabled } from './secureFunctionService';
 
 const BALL_MACHINE_RATE_KEY = 'ball_machine_rate';
 const BASKETBALL_HALF_RATE_KEY = 'basketball_half_rate';
@@ -260,6 +262,10 @@ function toPushToken(r: any): PushToken {
   };
 }
 
+function toSecurityEvent(r: any): SecurityEvent {
+  return { id: r.id, actorUserId: r.actor_user_id, action: r.action, outcome: r.outcome, metadata: r.metadata ?? {}, createdAt: r.created_at };
+}
+
 // ---- Service --------------------------------------------------------------
 
 export const supabaseService = {
@@ -282,6 +288,7 @@ export const supabaseService = {
     pricePerHour: number;
     phone: string;
   }): Promise<Coach> {
+    if (secureWritesEnabled) return toCoach(await invokeSecure<any>('admin-management', { action: 'coach_create', ...input }));
     const { data, error } = await supabase
       .from('coaches')
       .insert({
@@ -303,6 +310,10 @@ export const supabaseService = {
     id: string,
     input: { name: string; supportedSports: SportType[]; bio: string; pricePerHour: number; phone: string },
   ): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'coach_update', id, ...input });
+      return;
+    }
     const { error } = await supabase
       .from('coaches')
       .update({
@@ -317,6 +328,10 @@ export const supabaseService = {
   },
 
   async deleteCoach(id: string): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'coach_remove', id });
+      return;
+    }
     const { error } = await supabase.from('coaches').delete().eq('id', id);
     if (error) throw error;
   },
@@ -334,6 +349,9 @@ export const supabaseService = {
     endTime: string;
     reason: string;
   }): Promise<CourtBlock> {
+    if (secureWritesEnabled) return toCourtBlock(await invokeSecure<any>('admin-bookings', {
+      action: 'block_create', courtId: input.courtId, startTime: input.startTime, endTime: input.endTime, reason: input.reason,
+    }));
     const { data, error } = await supabase
       .from('court_blocks')
       .insert({
@@ -349,6 +367,10 @@ export const supabaseService = {
   },
 
   async deleteCourtBlock(id: string): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-bookings', { action: 'block_remove', blockId: id });
+      return;
+    }
     const { error } = await supabase.from('court_blocks').delete().eq('id', id);
     if (error) throw error;
   },
@@ -371,6 +393,30 @@ export const supabaseService = {
   /** Insert bookings and return the stored rows — total_price is set server-side
    *  (see supabase/pricing.sql), so the returned rows carry the authoritative price. */
   async insertBookings(bookings: Booking[]): Promise<Booking[]> {
+    if (secureWritesEnabled) {
+      if (bookings.every((b) => b.bookingType === 'court')) {
+        const rows = await invokeSecure<any[]>('booking-create', { bookings });
+        return (rows ?? []).map(toBooking);
+      }
+      const rows = await invokeSecure<any[]>('admin-bookings', {
+        action: 'coach_create',
+        bookings: bookings.map((b) => ({
+            id: b.id,
+            userId: b.userId,
+            sportType: b.sportType,
+            courtId: b.courtId,
+            coachId: b.coachId,
+            usesMainCourt: b.usesMainCourt,
+            startTime: b.startTime,
+            endTime: b.endTime,
+            durationMinutes: b.durationMinutes,
+            isRecurring: b.isRecurring,
+            recurrenceGroupId: b.recurrenceGroupId,
+            totalPrice: b.totalPrice,
+        })),
+      });
+      return (rows ?? []).map(toBooking);
+    }
     const { data, error } = await supabase
       .from('bookings')
       .insert(bookings.map(bookingToRow))
@@ -411,6 +457,18 @@ export const supabaseService = {
       totalPrice: number;
     }>,
   ): Promise<void> {
+    if (secureWritesEnabled && ('status' in patch || 'noShow' in patch || 'startTime' in patch)) {
+      if (patch.status === 'cancelled') await invokeSecure('admin-bookings', { action: 'cancel', bookingId: id, reason: patch.cancelReason || 'Cancelled by admin' });
+      else if (patch.status === 'completed') await invokeSecure('admin-bookings', { action: 'complete', bookingId: id });
+      else if (patch.noShow) await invokeSecure('admin-bookings', { action: 'no_show', bookingId: id, reason: patch.noShowReason || 'No-show' });
+      else if (patch.startTime && patch.endTime && patch.durationMinutes) await invokeSecure('admin-bookings', { action: 'reschedule', bookingId: id, startTime: patch.startTime, endTime: patch.endTime, durationMinutes: patch.durationMinutes });
+      return;
+    }
+    if (secureWritesEnabled && 'notificationId' in patch) {
+      const { error } = await supabase.rpc('set_own_booking_reminder', { p_booking_id: id, p_notification_id: patch.notificationId });
+      if (error) throw error;
+      return;
+    }
     const row: Record<string, unknown> = {};
     if ('status' in patch) row.status = patch.status;
     if ('cancelledAt' in patch) row.cancelled_at = patch.cancelledAt;
@@ -494,6 +552,9 @@ export const supabaseService = {
     relatedEntityType?: string | null;
     relatedEntityId?: string | null;
   }): Promise<UserNotification> {
+    if (secureWritesEnabled) return toNotification(await invokeSecure<any>('admin-notifications', {
+      userId: input.userId, title: input.title, message: input.message,
+    }));
     const { data, error } = await supabase
       .from('user_notifications')
       .insert({
@@ -584,23 +645,35 @@ export const supabaseService = {
     platform?: string | null;
     deviceId?: string | null;
   }): Promise<PushToken | null> {
-    const { data, error } = await supabase
-      .from('push_tokens')
-      .upsert({
-        user_id: input.userId,
-        token: input.token,
-        platform: input.platform ?? null,
-        device_id: input.deviceId ?? null,
-        is_active: true,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'token' })
-      .select()
-      .maybeSingle();
+    if (secureWritesEnabled) {
+      const row = await invokeSecure<any>('device-token', {
+        action: 'register', token: input.token, platform: input.platform ?? null, deviceId: input.deviceId ?? null,
+      });
+      return row ? toPushToken(row) : null;
+    }
+    const { data, error } = await supabase.rpc('register_push_token', {
+      push_token: input.token,
+      push_platform: input.platform ?? null,
+      push_device_id: input.deviceId ?? null,
+    });
     if (error) {
       warnMissingUpgrade(error, 'push-readiness.sql');
       throw error;
     }
-    return data ? toPushToken(data) : null;
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? toPushToken(row) : null;
+  },
+
+  async deactivatePushToken(token: string): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('device-token', { action: 'deactivate', token });
+      return;
+    }
+    const { error } = await supabase.rpc('deactivate_push_token', { push_token: token });
+    if (error) {
+      warnMissingUpgrade(error, 'push-readiness.sql');
+      throw error;
+    }
   },
 
   async listPushTokens(userId?: string): Promise<PushToken[]> {
@@ -624,6 +697,15 @@ export const supabaseService = {
     return (data ?? []).map(toSchemaMigration);
   },
 
+  async listSecurityEvents(): Promise<SecurityEvent[]> {
+    const { data, error } = await supabase.from('security_events').select('id,actor_user_id,action,outcome,metadata,created_at').order('created_at', { ascending: false }).limit(50);
+    if (error) {
+      warnMissingUpgrade(error, 'security-boundary.sql');
+      throw error;
+    }
+    return (data ?? []).map(toSecurityEvent);
+  },
+
   // Court rules -------------------------------------------------------------
   async listCourtRules(): Promise<CourtRule[]> {
     const { data, error } = await supabase.from('court_rules').select('*').order('sort_order');
@@ -632,6 +714,7 @@ export const supabaseService = {
   },
 
   async insertCourtRule(input: { title: string; content: string; sortOrder: number }): Promise<CourtRule> {
+    if (secureWritesEnabled) return toCourtRule(await invokeSecure<any>('admin-management', { action: 'rule_create', ...input }));
     const { data, error } = await supabase
       .from('court_rules')
       .insert({ title: input.title, content: input.content, sort_order: input.sortOrder })
@@ -645,6 +728,10 @@ export const supabaseService = {
     id: string,
     patch: Partial<{ title: string; content: string; sortOrder: number }>,
   ): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'rule_update', id, ...patch });
+      return;
+    }
     const row: Record<string, unknown> = {};
     if ('title' in patch) row.title = patch.title;
     if ('content' in patch) row.content = patch.content;
@@ -654,6 +741,10 @@ export const supabaseService = {
   },
 
   async deleteCourtRule(id: string): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'rule_remove', id });
+      return;
+    }
     const { error } = await supabase.from('court_rules').delete().eq('id', id);
     if (error) throw error;
   },
@@ -676,6 +767,10 @@ export const supabaseService = {
   },
 
   async updateOperatingHours(input: OperatingHour[]): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'operating_hours', rows: input });
+      return;
+    }
     const rows = input.map((h) => ({
       day_of_week: h.dayOfWeek,
       open_time: h.openTime === '24:00' ? '00:00' : h.openTime,
@@ -751,11 +846,19 @@ export const supabaseService = {
   },
 
   async setSupportPhone(value: string): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'support_phone', value });
+      return;
+    }
     const { error } = await supabase.from('app_config').upsert({ key: 'support_phone', value });
     if (error) throw error;
   },
 
   async setTierPerks(input: LoyaltyTierPerks): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'config_values', values: Object.fromEntries(Object.entries(input).map(([tier, lines]) => [TIER_PERK_KEYS[tier as LoyaltyTierKey], lines.map((line) => line.trim()).filter(Boolean).join('\n')])) });
+      return;
+    }
     const rows = (Object.keys(TIER_PERK_KEYS) as LoyaltyTierKey[]).map((tier) => ({
       key: TIER_PERK_KEYS[tier],
       value: input[tier].map((line) => line.trim()).filter(Boolean).join('\n'),
@@ -765,6 +868,10 @@ export const supabaseService = {
   },
 
   async updatePricing(input: Pricing): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'pricing', ...input });
+      return;
+    }
     const results = await Promise.all([
       supabase.from('sport_prices')
         .update({ price_per_hour: input.basketball, peak_price_per_hour: input.basketballPeak })
@@ -772,15 +879,27 @@ export const supabaseService = {
       supabase.from('sport_prices')
         .update({ price_per_hour: input.tennis, peak_price_per_hour: input.tennisPeak })
         .eq('sport_type', 'tennis'),
-      supabase.from('app_settings').update({ value: input.ballMachineRate }).eq('key', BALL_MACHINE_RATE_KEY),
-      supabase.from('app_settings').update({ value: input.basketballHalf }).eq('key', BASKETBALL_HALF_RATE_KEY),
-      supabase.from('app_settings').update({ value: input.basketballHalfPeak }).eq('key', BASKETBALL_HALF_RATE_PEAK_KEY),
+      // upsert (not update().eq()): an UPDATE that matches zero rows returns no
+      // error, so a missing settings key would silently no-op while the UI reports
+      // success. upsert seeds the row instead. Mirrors updateLoyaltySettings below.
+      supabase.from('app_settings').upsert({ key: BALL_MACHINE_RATE_KEY, value: input.ballMachineRate }),
+      supabase.from('app_settings').upsert({ key: BASKETBALL_HALF_RATE_KEY, value: input.basketballHalf }),
+      supabase.from('app_settings').upsert({ key: BASKETBALL_HALF_RATE_PEAK_KEY, value: input.basketballHalfPeak }),
     ]);
     const err = results.find((r) => r.error)?.error;
     if (err) throw err;
   },
 
   async updateLoyaltySettings(input: LoyaltySettings): Promise<void> {
+    if (secureWritesEnabled) {
+      await invokeSecure('admin-management', { action: 'config_values', values: {
+        [LOYALTY_FIRST_BOOKING_BONUS_KEY]: input.firstBookingBonus,
+        [LOYALTY_POINTS_PER_BOOKING_KEY]: input.pointsPerBooking,
+        [LOYALTY_COMPLETION_BONUS_KEY]: input.completionBonus,
+        [LOYALTY_NO_SHOW_PENALTY_KEY]: input.noShowPenalty,
+      } });
+      return;
+    }
     const results = await Promise.all([
       supabase.from('app_settings').upsert({ key: LOYALTY_FIRST_BOOKING_BONUS_KEY, value: input.firstBookingBonus }),
       supabase.from('app_settings').upsert({ key: LOYALTY_POINTS_PER_BOOKING_KEY, value: input.pointsPerBooking }),

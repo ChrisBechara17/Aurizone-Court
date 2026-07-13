@@ -114,7 +114,10 @@ export function computeLoyalty(
 
   // --- Free-session rewards --------------------------------------------
   // No-shows don't count as "good" bookings.
-  const goodBookings = bookings.filter((b) => b.status === 'completed' && !b.noShow).length;
+  const now = Date.now();
+  const goodBookings = bookings.filter(
+    (b) => b.status === 'completed' && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
+  ).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   // Redemption is derived from bookings flagged as free (cancelled ones refund automatically).
   const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;
@@ -155,7 +158,10 @@ export function computeLoyaltyFromTransactions(
     ? Math.min(1, (points - tier.min) / (nextTier.min - tier.min))
     : 1;
 
-  const goodBookings = bookings.filter((b) => b.status === 'completed' && !b.noShow).length;
+  const now = Date.now();
+  const goodBookings = bookings.filter(
+    (b) => b.status === 'completed' && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
+  ).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;
   const availableFree = Math.max(0, earnedFree - redeemedFree);
@@ -163,7 +169,7 @@ export function computeLoyaltyFromTransactions(
 
   return {
     points,
-    sessions: new Set(transactions.filter((tx) => tx.bookingId && tx.points > 0).map((tx) => tx.bookingId)).size,
+    sessions: bookings.filter((b) => b.status !== 'cancelled' && !b.noShow).length,
     tier,
     nextTier,
     pointsToNext,

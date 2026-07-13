@@ -25,6 +25,7 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+expo*.log
 
 # macOS
 .DS_Store
@@ -42,3 +43,9 @@ example
 # generated native folders
 /ios
 /android
+
+# Supabase CLI local link/cache state
+supabase/.temp/
+
+# Local debugging captures
+phone-screen.png

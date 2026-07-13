@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CalendarCheck, CalendarRange, Gift, Rocket, Users } from 'lucide-react-native';
@@ -56,11 +56,14 @@ export default function BookScreen() {
 
   // B2: when the Book tab is already mounted, a home quick-action changes the
   // ?sport param but not component state — sync it so the right sport is shown.
-  useEffect(() => {
+  // Adjust during render when the param changes, instead of in an effect.
+  const [prevSportParam, setPrevSportParam] = useState(params.sport);
+  if (params.sport !== prevSportParam) {
+    setPrevSportParam(params.sport);
     if (params.sport === 'basketball' || params.sport === 'tennis') {
       setSport(params.sport);
     }
-  }, [params.sport]);
+  }
   const [date, setDate] = useState<Date>(startOfDay(new Date()));
   const [time, setTime] = useState('18:00');
   const [duration, setDuration] = useState(1);
@@ -83,11 +86,19 @@ export default function BookScreen() {
   const freeRedeemable = loyalty.availableFree > 0;
   const isFree = useFree && freeRedeemable;
   const dayHours = operatingHoursForDate(operatingHours, date);
-  const daySlots = useMemo(() => timeSlotsForOperatingHours(dayHours), [dayHours]);
+  const daySlots = useMemo(() => {
+    const slots = timeSlotsForOperatingHours(dayHours);
+    const selectedDay = startOfDay(date).getTime();
+    const today = startOfDay(new Date()).getTime();
+    if (selectedDay !== today) return slots;
+    // eslint-disable-next-line react-hooks/purity -- current time intentionally filters today's elapsed slots
+    const now = Date.now();
+    return slots.filter((slot) => combineDateAndTime(date, slot).getTime() > now);
+  }, [dayHours, date]);
 
-  useEffect(() => {
-    if (daySlots.length > 0 && !daySlots.includes(time)) setTime(daySlots[0]);
-  }, [daySlots, time]);
+  // Snap the selected time into the day's valid slots. Adjust during render
+  // (converges: after the snap, `time` is one of daySlots).
+  if (daySlots.length > 0 && !daySlots.includes(time)) setTime(daySlots[0]);
 
   // Booking policy: only disabled accounts (3+ no-shows) are blocked. Users may
   // hold any number of upcoming bookings.
@@ -129,6 +140,7 @@ export default function BookScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   const onConfirm = async () => {
+    if (submitting) return;
     setError(null);
     // Policy checks only surface when the user actually tries to book.
     if (blockReason) {
@@ -142,6 +154,7 @@ export default function BookScreen() {
     // B1: no booking a slot that has already started/passed (the server rejects
     // it too — see supabase/harden-booking-integrity.sql — this is the friendly
     // first line of defense that also stops loyalty farming from past bookings).
+    // eslint-disable-next-line react-hooks/purity -- intentional current-time read inside a submit handler path guarding against past-start bookings
     if (start.getTime() <= Date.now()) {
       setError('Pick a start time in the future.');
       return;
@@ -216,7 +229,9 @@ export default function BookScreen() {
           {unavailable.includes(time) ? (
             <ErrorBanner
               message={
-                half
+                !fitsWithinOperatingHours(time, duration, dayHours)
+                  ? 'This duration would run past closing time.'
+                  : half
                   ? 'Both halves of the court are booked at this time.'
                   : 'This slot is unavailable because basketball and tennis share the same court.'
               }

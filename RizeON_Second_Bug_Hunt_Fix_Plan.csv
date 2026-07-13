@@ -1,0 +1,6 @@
+﻿Priority,Items,Plan
+R1,R1,Mirror server behavior: reject past start only when start_time changes into the past; allow duration-only edits of in-progress bookings.
+User-facing cluster,"U1, U2, U3","Fix bookings filter/cancel CTA, clear cross-account in-memory data on logout/delete, and show delete-account errors inside the modal."
+Cheap hardening,"S3, S4, U4, U5, U6","Neutralize CSV formulas, revoke migration function execute, remove demo-user fallback, guard read notifications, and add navigation fallbacks."
+Lower-priority polish,"S2, R2, S5, S8, U7, S6, S7","Handle shared-device push reassignment, reminder orphan cleanup, notification update restrictions, duration consistency, reward label consistency, loyalty completion alignment, and Expo push chunking."
+Dropped false positive,Loyalty completion/no-show never recorded + points farming,"Dropped as false positive. Store ledgers completion bonus, no-show penalty/reversal, and cancellation reversal. Only residual is direct-REST admin status changes not ledgering."

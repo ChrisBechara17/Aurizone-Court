@@ -34,6 +34,7 @@ export default function VerifyOtp() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(RESEND_COOLDOWN);
 
   useEffect(() => {
@@ -66,10 +67,12 @@ export default function VerifyOtp() {
   };
 
   const onResend = async () => {
-    if (cooldown > 0) return;
+    if (cooldown > 0 || resending) return;
     setError(null);
     setNotice(null);
-    const res = flow === 'signup' ? await authService.resendSignupCode(email) : await resetPassword(email);
+    setResending(true);
+    const res = await (flow === 'signup' ? authService.resendSignupCode(email) : resetPassword(email))
+      .finally(() => setResending(false));
     if (!res.ok) return setError(res.error ?? 'Could not resend the code.');
     setCode('');
     setCooldown(RESEND_COOLDOWN);
@@ -124,15 +127,15 @@ export default function VerifyOtp() {
                   loading={verifying}
                 />
 
-                <Pressable onPress={onResend} disabled={cooldown > 0} hitSlop={8} style={{ alignSelf: 'center' }}>
+                <Pressable onPress={onResend} disabled={cooldown > 0 || resending} hitSlop={8} style={{ alignSelf: 'center' }}>
                   <Text
                     style={{
-                      color: cooldown > 0 ? COLORS.textFaint : COLORS.neon,
+                      color: cooldown > 0 || resending ? COLORS.textFaint : COLORS.neon,
                       fontSize: 13,
                       fontWeight: '700',
                     }}
                   >
-                    {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+                    {resending ? 'Sending...' : cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
                   </Text>
                 </Pressable>
               </View>
