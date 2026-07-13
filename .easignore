@@ -1,0 +1,26 @@
+# Dependencies and local Expo output
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Local credentials and environment files
+.env
+.env*.local
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Generated native folders and local tooling state
+/ios
+/android
+supabase/.temp/
+expo*.log
+phone-screen.png
+
+# The Firebase Android client config is intentionally untracked by Git but is
+# required in the EAS build archive referenced by app.json.
+!google-services.json

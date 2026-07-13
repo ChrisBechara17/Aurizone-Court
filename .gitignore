@@ -35,6 +35,9 @@ expo*.log
 .env
 .env*.local
 
+# Firebase Android client configuration (provided separately to EAS builds)
+google-services.json
+
 # typescript
 *.tsbuildinfo
 
