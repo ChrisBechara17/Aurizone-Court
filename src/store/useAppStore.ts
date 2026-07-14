@@ -161,6 +161,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => {
   /** Schedule reminders for new bookings and persist their notification ids. */
   const attachReminders = async (created: Booking[]): Promise<Booking[]> => {
+    if (secureWritesEnabled) return created;
     if (!get().remindersEnabled) return created;
     const out: Booking[] = [];
     for (const b of created) {
@@ -309,6 +310,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     hydrate: async () => {
       configureNotifications();
+      if (secureWritesEnabled) void cancelAllReminders();
       // A5: bound the auth read (a network profile query) and load shared data
       // in the background, so the splash can never hang forever on a black-holing
       // network. Local settings come from AsyncStorage and resolve immediately.
@@ -442,6 +444,7 @@ export const useAppStore = create<AppState>((set, get) => {
           token: res.token,
           platform: 'native',
           deviceId: undefined,
+          bookingRemindersEnabled: get().remindersEnabled,
         });
       } catch {
         // Optional DB upgrade may not be installed yet; warning is logged in the service.
@@ -728,7 +731,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, error: e?.message ?? 'Could not cancel booking.' };
       }
       await reverseBookingLoyalty(target, 'booking_cancelled');
-      void cancelReminder(target.notificationId);
+      if (!secureWritesEnabled) void cancelReminder(target.notificationId);
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'cancelled', cancelledAt, cancelReason: reason.trim() || null } : b,
@@ -857,24 +860,25 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, error: e?.message ?? 'Could not reschedule booking.' };
       }
 
-      let notificationId: string | null = null;
+      let notificationId: string | null = secureWritesEnabled ? null : target.notificationId ?? null;
       const updated: Booking = { ...target, startTime, endTime, durationMinutes, totalPrice, notificationId: null };
-      try {
-        notificationId = get().remindersEnabled ? await scheduleBookingReminder(updated) : null;
-      } catch {
-        notificationId = null;
-      }
+      if (!secureWritesEnabled) {
+        try {
+          notificationId = get().remindersEnabled ? await scheduleBookingReminder(updated) : null;
+        } catch {
+          notificationId = null;
+        }
 
-      // Persist the replacement id before cancelling the old reminder. If this
-      // write fails, remove the newly scheduled reminder so it cannot become an
-      // orphan. The old reminder is also cancelled because its time is stale.
-      try {
-        await supabaseService.updateBooking(id, { notificationId });
-        await cancelReminder(target.notificationId);
-      } catch {
-        await cancelReminder(notificationId);
-        await cancelReminder(target.notificationId);
-        notificationId = null;
+        // Persist the replacement id before cancelling the old reminder. If
+        // this write fails, remove both reminders so neither can become stale.
+        try {
+          await supabaseService.updateBooking(id, { notificationId });
+          await cancelReminder(target.notificationId);
+        } catch {
+          await cancelReminder(notificationId);
+          await cancelReminder(target.notificationId);
+          notificationId = null;
+        }
       }
 
       set({
@@ -948,6 +952,12 @@ export const useAppStore = create<AppState>((set, get) => {
     setRemindersEnabled: async (enabled) => {
       await storageService.setRemindersEnabled(enabled);
       set({ remindersEnabled: enabled });
+
+      if (secureWritesEnabled) {
+        await cancelAllReminders();
+        await get().registerPushToken();
+        return;
+      }
 
       if (!enabled) {
         await cancelAllReminders();

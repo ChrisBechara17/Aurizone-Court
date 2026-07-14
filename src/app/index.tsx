@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -22,6 +23,7 @@ const WORDMARK_AR = 1317 / 245; // source px, keep in sync with the asset
 const WORD_H = 34;
 const MARK_SIZE = 116;
 const ROW_GAP = 12;
+const STATUS_WIDTH = 240;
 const WORDMARK_FONT = { fontSize: 40, fontWeight: '900', fontStyle: 'italic', letterSpacing: -0.5 } as const;
 
 // Timeline (ms): mark lands → row opens into the lockup → tagline → route away.
@@ -30,6 +32,7 @@ const ROUTE_AT = 2500;
 
 export default function SplashScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const hydrated = useAppStore((s) => s.hydrated);
   const onboarded = useAppStore((s) => s.onboarded);
   const user = useAppStore((s) => s.user);
@@ -65,6 +68,19 @@ export default function SplashScreen() {
 
       <LinearGradient colors={APP_GRADIENT} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         {wordW !== null ? <LogoLockup key={isDark ? 'dark' : 'light'} wordW={wordW} image={isDark} /> : null}
+        <Animated.Text
+          entering={FadeInDown.delay(OPEN_AT + 850).duration(500)}
+          style={{
+            position: 'absolute',
+            bottom: Math.max(insets.bottom, 12) + 24,
+            color: COLORS.textFaint,
+            fontSize: 12,
+            fontWeight: '600',
+            textAlign: 'center',
+          }}
+        >
+          Developed by Chris Bechara
+        </Animated.Text>
       </LinearGradient>
     </View>
   );
@@ -142,11 +158,20 @@ function LogoLockup({ wordW, image }: { wordW: number; image: boolean }) {
         )}
       </Animated.View>
 
-      <Animated.View entering={FadeInDown.delay(OPEN_AT + 600).duration(500)} style={{ alignItems: 'center', gap: 8 }}>
+      <Animated.View
+        entering={FadeInDown.delay(OPEN_AT + 600).duration(500)}
+        style={{ alignItems: 'center', gap: 8, width: STATUS_WIDTH }}
+      >
         <Text style={{ color: COLORS.neon, fontSize: 14, fontWeight: '600', letterSpacing: 3 }}>
           BOOK. PLAY. REPEAT.
         </Text>
-        <Text style={{ color: COLORS.textFaint, fontSize: 12 }}>Loading your court…</Text>
+        <Text
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.3}
+          style={{ width: STATUS_WIDTH, color: COLORS.textFaint, fontSize: 12, lineHeight: 18, textAlign: 'center' }}
+        >
+          Loading your court…
+        </Text>
       </Animated.View>
     </View>
   );

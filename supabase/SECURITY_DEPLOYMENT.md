@@ -76,3 +76,7 @@ incident.
   `select public.cleanup_security_rate_limits();` with Supabase Cron, or running
   it manually each month with a privileged database role.
 
+## Server booking reminders
+
+After secure writes are active, deploy the cancellation-safe scheduled reminder
+worker using [BOOKING_REMINDERS_DEPLOYMENT.md](BOOKING_REMINDERS_DEPLOYMENT.md).

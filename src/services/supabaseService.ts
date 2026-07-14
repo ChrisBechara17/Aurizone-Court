@@ -646,10 +646,15 @@ export const supabaseService = {
     token: string;
     platform?: string | null;
     deviceId?: string | null;
+    bookingRemindersEnabled?: boolean;
   }): Promise<PushToken | null> {
     if (secureWritesEnabled) {
       const row = await invokeSecure<any>('device-token', {
-        action: 'register', token: input.token, platform: input.platform ?? null, deviceId: input.deviceId ?? null,
+        action: 'register',
+        token: input.token,
+        platform: input.platform ?? null,
+        deviceId: input.deviceId ?? null,
+        bookingRemindersEnabled: input.bookingRemindersEnabled ?? true,
       });
       return row ? toPushToken(row) : null;
     }

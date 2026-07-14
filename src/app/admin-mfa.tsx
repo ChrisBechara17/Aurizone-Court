@@ -41,7 +41,7 @@ export default function AdminMfaScreen() {
     if (!factorId || code.length !== 6) return;
     setError(null);
     setLoading(true);
-    const result = await authService.verifyAdminTotp(factorId, code).finally(() => setLoading(false));
+    const result = await authService.verifyTotp(factorId, code).finally(() => setLoading(false));
     if (!result.ok) return setError(result.error ?? 'Verification failed. Request a fresh code and try again.');
     router.replace('/admin');
   };

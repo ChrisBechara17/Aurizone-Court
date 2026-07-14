@@ -39,7 +39,7 @@ export const authService = {
     return data;
   },
 
-  async verifyAdminTotp(factorId: string, code: string): Promise<Result> {
+  async verifyTotp(factorId: string, code: string): Promise<Result> {
     const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
     if (challengeError) return { ok: false, error: challengeError.message };
     const { error } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: code.trim() });
