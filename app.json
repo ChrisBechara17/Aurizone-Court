@@ -43,6 +43,14 @@
           "color": "#3ad7ff"
         }
       ],
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false,
+          "hidden": false,
+          "style": "dark"
+        }
+      ],
       "expo-sharing",
       "@sentry/react-native"
     ],

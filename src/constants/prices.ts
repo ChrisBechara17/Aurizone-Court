@@ -1,6 +1,6 @@
 import { Pricing, SportPrice, SportType } from '@/models';
 
-// Displayed prices only — no payment processing in this demo.
+// Displayed prices only — payment processing is not enabled.
 export const SPORT_PRICES: SportPrice[] = [
   { sportType: 'basketball', pricePerHour: 30 },
   { sportType: 'tennis', pricePerHour: 20 },

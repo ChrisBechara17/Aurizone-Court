@@ -18,10 +18,12 @@ import {
   SportType,
   User,
   UserNotification,
+  VenueLocation,
 } from '@/models';
 import { DEFAULT_PRICING } from '@/constants/prices';
 import { DEFAULT_LOYALTY_SETTINGS, DEFAULT_TIER_PERKS } from '@/utils/loyalty';
 import { invokeSecure, secureWritesEnabled } from './secureFunctionService';
+import { DEFAULT_VENUE_LOCATION } from '@/constants/venue';
 
 const BALL_MACHINE_RATE_KEY = 'ball_machine_rate';
 const BASKETBALL_HALF_RATE_KEY = 'basketball_half_rate';
@@ -825,6 +827,20 @@ export const supabaseService = {
   async getSupportPhone(): Promise<string | null> {
     const { data } = await supabase.from('app_config').select('value').eq('key', 'support_phone').maybeSingle();
     return data?.value ?? null;
+  },
+
+  async getVenueLocation(): Promise<VenueLocation | null> {
+    const keys = ['venue_name', 'venue_short_location', 'venue_maps_url'];
+    const { data, error } = await supabase.from('app_config').select('key, value').in('key', keys);
+    if (error) throw error;
+    if (!data?.length) return null;
+    const value = (key: string, fallback: string) =>
+      data.find((row) => row.key === key)?.value?.trim() || fallback;
+    return {
+      name: value('venue_name', DEFAULT_VENUE_LOCATION.name),
+      shortLocation: value('venue_short_location', DEFAULT_VENUE_LOCATION.shortLocation),
+      mapsUrl: value('venue_maps_url', DEFAULT_VENUE_LOCATION.mapsUrl),
+    };
   },
 
   async getTierPerks(): Promise<LoyaltyTierPerks> {

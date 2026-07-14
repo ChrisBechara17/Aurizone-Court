@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,15 +24,20 @@ import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { parseISO } from 'date-fns';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
+import { VenueLocationSheet } from '@/components/VenueLocationSheet';
 
 export default function HomeScreen() {
   useThemeName();
   const router = useRouter();
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
   const pricing = useAppStore((s) => s.pricing);
   const loyaltySettings = useAppStore((s) => s.loyaltySettings);
   const loyaltyTransactions = useAppStore((s) => s.loyaltyTransactions);
+  const venueLocation = useAppStore((s) => s.venueLocation);
+  const [locationOpen, setLocationOpen] = useState(false);
   const bookings = user ? allBookings.filter((b) => b.userId === user.id) : [];
   const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
   const loyalty = myTransactions.length > 0
@@ -49,18 +55,21 @@ export default function HomeScreen() {
     <ScreenContainer>
       {/* No horizontal padding here — sections add their own 20px so the Quick
           Actions cards can go edge-to-edge without a (clipped-on-Android) negative margin. */}
-      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: 110, gap: 18 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: contentBottomPadding, gap: 18 }} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Animated.View entering={FadeInDown.duration(400)} style={{ paddingHorizontal: 20 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <View>
+            <View style={{ flex: 1, minWidth: 0, paddingRight: 12 }}>
               <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>Welcome back,</Text>
-              <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>
                 {user?.name ?? 'Player'} 👋
               </Text>
             </View>
-            <View
-              style={{
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${venueLocation.name} location`}
+              onPress={() => setLocationOpen(true)}
+              style={({ pressed }) => ({
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 6,
@@ -70,11 +79,16 @@ export default function HomeScreen() {
                 backgroundColor: COLORS.card,
                 borderWidth: 1,
                 borderColor: COLORS.cardBorder,
-              }}
+                maxWidth: 132,
+                flexShrink: 1,
+                opacity: pressed ? 0.8 : 1,
+              })}
             >
               <MapPin size={14} color={COLORS.neon} />
-              <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '700' }}>1 Location</Text>
-            </View>
+              <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: 12, fontWeight: '700', flexShrink: 1 }}>
+                {venueLocation.name}
+              </Text>
+            </Pressable>
           </View>
         </Animated.View>
 
@@ -233,6 +247,11 @@ export default function HomeScreen() {
           </Pressable>
         </Animated.View>
       </ScrollView>
+      <VenueLocationSheet
+        visible={locationOpen}
+        location={venueLocation}
+        onClose={() => setLocationOpen(false)}
+      />
     </ScreenContainer>
   );
 }

@@ -24,12 +24,13 @@ export function MainCourtCard({ activeSport }: Props) {
         gap: 12,
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View
             style={{
               width: 42,
               height: 42,
+              flexShrink: 0,
               borderRadius: 13,
               alignItems: 'center',
               justifyContent: 'center',
@@ -38,13 +39,19 @@ export function MainCourtCard({ activeSport }: Props) {
           >
             <Zap size={22} color={accent} />
           </View>
-          <View>
-            <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 18 }}>Main Court</Text>
-            <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>Shared Court · Basketball + Tennis</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ color: COLORS.text, fontWeight: '800', fontSize: 18 }}>
+              Main Court
+            </Text>
+            <Text numberOfLines={2} style={{ color: COLORS.textMuted, fontSize: 12 }}>
+              Shared Court · Basketball + Tennis
+            </Text>
           </View>
         </View>
         <View
           style={{
+            flexShrink: 0,
+            marginLeft: 8,
             paddingHorizontal: 10,
             paddingVertical: 5,
             borderRadius: 999,

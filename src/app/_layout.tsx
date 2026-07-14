@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
@@ -26,8 +27,9 @@ Sentry.init({
 
 function RootLayout() {
   const hydrate = useAppStore((s) => s.hydrate);
+  const hydrated = useAppStore((s) => s.hydrated);
   const userId = useAppStore((s) => s.user?.id ?? null);
-  useThemeName(); // re-render chrome (status bar / background) on theme change
+  const theme = useThemeName(); // re-render chrome (status bar / background) on theme change
   useRealtimeSync();
 
   useEffect(() => {
@@ -42,6 +44,7 @@ function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navBg }}>
       <SafeAreaProvider>
         <StatusBar style={COLORS.statusBar} />
+        <NavigationBar style={theme === 'light' ? 'light' : 'dark'} />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -51,21 +54,25 @@ function RootLayout() {
         >
           <Stack.Screen name="index" />
           <Stack.Screen name="onboarding" />
-          <Stack.Screen name="auth" />
           <Stack.Screen name="verify-otp" />
           <Stack.Screen name="reset-password" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="rules" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="memberships" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="loyalty" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="notifications" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="booking-detail" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="availability" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin-mfa" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin-users" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin-user" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin-booking" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          <Stack.Protected guard={hydrated && !userId}>
+            <Stack.Screen name="auth" />
+          </Stack.Protected>
+          <Stack.Protected guard={hydrated && !!userId}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="rules" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="memberships" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="loyalty" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="notifications" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="booking-detail" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="availability" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin-mfa" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin-users" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin-user" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin-booking" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+          </Stack.Protected>
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

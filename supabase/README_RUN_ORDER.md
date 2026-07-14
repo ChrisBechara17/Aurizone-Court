@@ -76,6 +76,9 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
     - Corrects paid-only free rewards and installs transactional service-role RPCs.
     - Deploy the updated Edge Functions immediately after applying it.
 
+18. `venue-location.sql`
+    - Adds the public RizeON name, short location, and Maps destination.
+
 ## After Existing Project Updates
 
 If the database already exists and you are applying the newest app changes, run:
@@ -91,7 +94,8 @@ If the database already exists and you are applying the newest app changes, run:
 Deploy and test Edge Functions next. Run `security-lockdown.sql` only after the
 full secure-write smoke test described in `SECURITY_DEPLOYMENT.md` passes.
 For an already locked project, run `post-lockdown-integrity.sql` next and then
-redeploy all secure mutation Edge Functions.
+redeploy all secure mutation Edge Functions. Run `venue-location.sql` afterward
+to publish the RizeON Maps destination.
 
 Run `harden-security.sql` last because it references columns created by
 `operations-upgrades.sql`.

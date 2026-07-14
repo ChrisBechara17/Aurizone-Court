@@ -4,7 +4,7 @@ A futuristic, dark-mode mobile app for booking a single **shared physical court*
 ("Main Court") for **basketball** or **tennis**, plus coaches and weekly repeats.
 Real React Native — **not** a WebView.
 
-> Companion to the Next.js web demo in the parent folder. This is the mobile deliverable.
+> Mobile application for RizeON court booking and operations.
 
 ## Stack
 
@@ -40,14 +40,13 @@ Court for **both**. This is enforced in `src/utils/conflictUtils.ts` →
 
 ## What you can do
 
-Log in (demo, no password) → book the Main Court for basketball or tennis →
+Create an account or sign in with email and password → book the Main Court for basketball or tennis →
 watch a basketball slot block tennis at the same time → book a coach (optionally
 reserving the Main Court) → repeat weekly (2/4/8 weeks, unavailable dates are
 skipped and reported) → cancel bookings → view rules → browse coming-soon memberships.
 
-Seed data includes the three example bookings from the spec (basketball today 8 PM,
-tennis tomorrow 6 PM, Coach Maya tomorrow 5 PM). **Profile → Reset Demo Data**
-restores them.
+Bookings, coaches, operating hours, pricing, and account data are loaded from the
+configured Supabase project.
 
 ## Architecture (backend-ready)
 
@@ -58,7 +57,7 @@ src/
   app/                 Expo Router screens
     index.tsx          Splash (animated) -> onboarding / auth / home
     onboarding.tsx     3 slides + Skip / Get Started
-    auth.tsx           Demo login (RHF + Zod)
+    auth.tsx           Email/password authentication (RHF + Zod)
     (tabs)/            home · book · coaches · bookings · profile
     rules.tsx  memberships.tsx
   components/          GlassCard, SportModeCard, MainCourtCard, CoachCard,

@@ -246,7 +246,7 @@ export default function LoyaltyScreen() {
         </Animated.View>
 
         <Text style={{ color: COLORS.textFaint, fontSize: 12, textAlign: 'center' }}>
-          Rewards are a demo preview — redemption opens with memberships.
+          Reward redemption is coming with memberships.
         </Text>
       </ScrollView>
     </ScreenContainer>

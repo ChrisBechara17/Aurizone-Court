@@ -16,6 +16,7 @@ import {
   SportType,
   User,
   UserNotification,
+  VenueLocation,
 } from '@/models';
 import { COURT_RULES } from '@/data/seedData';
 import { storageService } from '@/services/storageService';
@@ -39,6 +40,7 @@ import { courtRate, DEFAULT_PRICING, MAX_DURATION_HOURS } from '@/constants/pric
 import { SUPPORT_PHONE } from '@/constants/admin';
 import { DEFAULT_LOYALTY_SETTINGS, DEFAULT_TIER_PERKS } from '@/utils/loyalty';
 import { secureWritesEnabled } from '@/services/secureFunctionService';
+import { DEFAULT_VENUE_LOCATION } from '@/constants/venue';
 
 const PLACEHOLDER_COURT: Court = {
   id: '',
@@ -83,6 +85,7 @@ interface AppState {
   loyaltySettings: LoyaltySettings; // admin-configurable rewards rules
   tierPerks: LoyaltyTierPerks; // admin-editable reward text shown per tier
   supportPhone: string; // admin-editable front-desk number shown for cancellations
+  venueLocation: VenueLocation; // public venue name and directions destination
   operatingHours: OperatingHour[];
   auditLogs: AdminAuditLog[];
   notifications: UserNotification[];
@@ -291,6 +294,7 @@ export const useAppStore = create<AppState>((set, get) => {
     loyaltySettings: DEFAULT_LOYALTY_SETTINGS,
     tierPerks: DEFAULT_TIER_PERKS,
     supportPhone: SUPPORT_PHONE,
+    venueLocation: DEFAULT_VENUE_LOCATION,
     operatingHours: DEFAULT_OPERATING_HOURS,
     auditLogs: [],
     notifications: [],
@@ -326,7 +330,7 @@ export const useAppStore = create<AppState>((set, get) => {
     refresh: async () => {
       const refreshUserId = get().user?.id ?? null;
       const isAdmin = !!get().user?.isAdmin;
-      const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR] = await Promise.allSettled([
+      const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, venueR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR] = await Promise.allSettled([
         supabaseService.getMainCourt(),
         supabaseService.listCoaches(),
         supabaseService.listCourtBlocks(),
@@ -337,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => {
         supabaseService.getLoyaltySettings(),
         supabaseService.getTierPerks(),
         supabaseService.getSupportPhone(),
+        supabaseService.getVenueLocation(),
         supabaseService.listCourtRules(),
         isAdmin ? supabaseService.listAuditLogs() : Promise.resolve([] as AdminAuditLog[]),
         supabaseService.listNotifications(get().user?.id),
@@ -357,6 +362,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (loyaltyR.status === 'fulfilled') patch.loyaltySettings = loyaltyR.value;
       if (tierPerksR.status === 'fulfilled') patch.tierPerks = tierPerksR.value;
       if (supportR.status === 'fulfilled' && supportR.value) patch.supportPhone = supportR.value;
+      if (venueR.status === 'fulfilled' && venueR.value) patch.venueLocation = venueR.value;
       // Only replace the seed rules if the DB actually returned some.
       if (rulesR.status === 'fulfilled' && rulesR.value.length > 0) patch.courtRules = rulesR.value;
       if (auditR.status === 'fulfilled') patch.auditLogs = auditR.value;
@@ -366,7 +372,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (migrationsR.status === 'fulfilled') patch.schemaMigrations = migrationsR.value;
       if (securityR.status === 'fulfilled') patch.securityEvents = securityR.value;
       patch.lastRefreshedAt = new Date().toISOString();
-      const failed = [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR]
+      const failed = [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, venueR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR]
         .some((r) => r.status === 'rejected');
       patch.refreshError = failed ? 'Some data could not be refreshed.' : null;
       // A detached refresh may outlive logout/account switching. Never let a

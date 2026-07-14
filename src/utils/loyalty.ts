@@ -1,10 +1,9 @@
 import { Booking, LoyaltySettings, LoyaltyTierPerks, LoyaltyTransaction } from '@/models';
 
 // ---------------------------------------------------------------------------
-// CourtHub Rewards — a lightweight loyalty system derived from booking history.
-// Demo only: points are computed from local bookings, no real redemption.
-// When the backend lands, this logic moves server-side and points become a
-// stored balance on the User.
+// RizeON Rewards calculations used to present the server-backed loyalty state.
+// Booking-history calculations remain as an offline fallback when the ledger
+// has not loaded yet.
 // ---------------------------------------------------------------------------
 
 export interface LoyaltyTier {

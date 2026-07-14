@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Domain models for the CourtHub demo.
+// Domain models for RizeON.
 // These mirror the future PostgreSQL schema so the storage layer can later be
 // swapped for a NestJS + Postgres backend without touching the UI.
 // ---------------------------------------------------------------------------
@@ -61,6 +61,12 @@ export interface OperatingHour {
   openTime: string; // "HH:mm"
   closeTime: string; // "HH:mm"; "24:00" is midnight
   isClosed: boolean;
+}
+
+export interface VenueLocation {
+  name: string;
+  shortLocation: string;
+  mapsUrl: string;
 }
 
 export interface LoyaltySettings {

@@ -15,6 +15,7 @@ import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { EmptyState } from '@/components/EmptyState';
 import { AdminTabBar, AdminTabDef } from '@/components/admin/AdminTabBar';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 import { UserRosterList } from '@/components/admin/UserRosterList';
 import { COLORS, sportLabel } from '@/constants/colors';
 import { Booking, CourtBlock, LoyaltyTierKey, OperatingHour, SportType } from '@/models';
@@ -74,6 +75,7 @@ const REQUIRED_MIGRATIONS = [
   { key: 'schema-migrations.sql', label: 'Migration tracking' },
   { key: 'security-boundary.sql', label: 'Security boundary' },
   { key: 'post-lockdown-integrity.sql', label: 'Transactional integrity' },
+  { key: 'venue-location.sql', label: 'Venue location' },
 ];
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -93,6 +95,7 @@ const inputStyleFor = () =>
   }) as const;
 
 export default function AdminScreen() {
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const ADMIN = COLORS.warning;
   const sentryProjectId = process.env.EXPO_PUBLIC_SENTRY_DSN?.split('/').filter(Boolean).at(-1);
   const inputStyle = inputStyleFor();
@@ -624,7 +627,7 @@ export default function AdminScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 110, gap: 18 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: contentBottomPadding, gap: 18 }} showsVerticalScrollIndicator={false}>
         {/* Console banner */}
         <Animated.View entering={FadeInDown.duration(350)}>
           <LinearGradient

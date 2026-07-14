@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 
 type Filter = 'upcoming' | 'past' | 'cancelled';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -19,6 +20,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 export default function BookingsScreen() {
   useThemeName();
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const user = useAppStore((s) => s.user);
   const router = useRouter();
   const allBookings = useAppStore((s) => s.bookings);
@@ -97,7 +99,7 @@ export default function BookingsScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 120, gap: 14 }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: contentBottomPadding, gap: 14 }} showsVerticalScrollIndicator={false}>
           {list.length === 0 ? (
             <EmptyState
               icon={<CalendarX2 size={28} color={COLORS.neon} />}

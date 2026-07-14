@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -29,9 +30,11 @@ import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
 import { REMINDER_LEAD_MINUTES } from '@/services/notificationService';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const user = useAppStore((s) => s.user);
   const allBookings = useAppStore((s) => s.bookings);
   const logout = useAppStore((s) => s.logout);
@@ -49,6 +52,7 @@ export default function ProfileScreen() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteText, setDeleteText] = useState('');
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const bookings = allBookings.filter((b) => b.userId === user?.id);
   const myTransactions = loyaltyTransactions.filter((tx) => tx.userId === user?.id);
   const loyalty = myTransactions.length > 0
@@ -91,7 +95,7 @@ export default function ProfileScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120, gap: 18 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: contentBottomPadding, gap: 18 }} showsVerticalScrollIndicator={false}>
         <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>Profile</Text>
 
         <Animated.View entering={FadeInDown.duration(400)}>
@@ -390,7 +394,7 @@ export default function ProfileScreen() {
         </View>
 
         <Text style={{ color: COLORS.textFaint, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
-          RizeON · Demo build · v1.0
+          RizeON · v{appVersion}
         </Text>
       </ScrollView>
 

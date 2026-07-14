@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { LucideIcon } from 'lucide-react-native';
 import { COLORS } from '@/constants/colors';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 
 export interface AdminTabDef<K extends string> {
   key: K;
@@ -22,6 +23,7 @@ interface Props<K extends string> {
  */
 export function AdminTabBar<K extends string>({ tabs, active, onChange }: Props<K>) {
   const ADMIN = COLORS.warning;
+  const { barHeight, bottomPadding } = useBottomNavigationMetrics();
   return (
     <View
       style={{
@@ -33,9 +35,9 @@ export function AdminTabBar<K extends string>({ tabs, active, onChange }: Props<
         backgroundColor: COLORS.tabBar,
         borderTopColor: COLORS.cardBorder,
         borderTopWidth: 1,
-        height: 82,
-        paddingTop: 10,
-        paddingBottom: 20,
+        height: barHeight,
+        paddingTop: 8,
+        paddingBottom: bottomPadding,
         shadowColor: '#000',
         shadowOpacity: 0.08,
         shadowRadius: 16,
@@ -65,7 +67,7 @@ export function AdminTabBar<K extends string>({ tabs, active, onChange }: Props<
             >
               <t.Icon size={21} color={color} />
             </View>
-            <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700', marginTop: 2 }}>
+            <Text numberOfLines={2} style={{ color, fontSize: 11, lineHeight: 12, fontWeight: '700', marginTop: 2, textAlign: 'center' }}>
               {t.label}
             </Text>
           </Pressable>

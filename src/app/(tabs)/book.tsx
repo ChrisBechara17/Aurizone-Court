@@ -34,10 +34,12 @@ import { courtRate } from '@/constants/prices';
 import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
 import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty';
 import { computeStanding } from '@/utils/accountStanding';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 
 export default function BookScreen() {
   useThemeName();
   const router = useRouter();
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const params = useLocalSearchParams<{ sport?: string }>();
   const bookCourt = useAppStore((s) => s.bookCourt);
   const user = useAppStore((s) => s.user);
@@ -183,7 +185,7 @@ export default function BookScreen() {
     <ScreenContainer>
       {/* No horizontal padding — each section adds its own 20px so the sport cards
           can go edge-to-edge (a negative margin would be clipped on Android). */}
-      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: 120, gap: 18 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: contentBottomPadding, gap: 18 }} showsVerticalScrollIndicator={false}>
         <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900', paddingHorizontal: 20 }}>Book the Court</Text>
 
         {/* Sport selection — full-bleed so the two cards reach the screen edges,

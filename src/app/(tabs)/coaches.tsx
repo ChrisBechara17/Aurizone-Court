@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { COLORS, sportAccent } from '@/constants/colors';
 import { SportType } from '@/models';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
+import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
 
 type Filter = 'all' | SportType;
 const FILTERS: { key: Filter; label: string }[] = [
@@ -18,6 +19,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 export default function CoachesScreen() {
   useThemeName();
+  const { contentBottomPadding } = useBottomNavigationMetrics();
   const coaches = useAppStore((s) => s.coaches);
   const [filter, setFilter] = useState<Filter>('all');
 
@@ -26,7 +28,7 @@ export default function CoachesScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120, gap: 18 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: contentBottomPadding, gap: 18 }} showsVerticalScrollIndicator={false}>
         <View>
           <Text style={{ color: COLORS.text, fontSize: 26, fontWeight: '900' }}>Our Coaches</Text>
           <Text style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 2 }}>
