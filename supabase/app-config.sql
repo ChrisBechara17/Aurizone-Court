@@ -13,7 +13,7 @@ create table if not exists public.app_config (
 );
 
 insert into public.app_config (key, value)
-  values ('support_phone', '+961 00 000 000')
+  values ('support_phone', '+961 71 735 528')
   on conflict (key) do nothing;
 
 insert into public.app_config (key, value)

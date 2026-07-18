@@ -1331,7 +1331,7 @@ export default function AdminScreen() {
               <TextInput
                 value={cPhone}
                 onChangeText={setCPhone}
-                placeholder="+1 (555) 000-0000"
+                placeholder="+961 71 735 528"
                 keyboardType="phone-pad"
                 placeholderTextColor={COLORS.textFaint}
                 style={inputStyle}
