@@ -61,6 +61,20 @@ end; $$;
 revoke all on function public.assert_booking_time_contract(timestamptz,timestamptz,integer,boolean)
   from public, anon, authenticated;
 
+create or replace function public.assert_court_block_contract(p_start_time timestamptz,p_end_time timestamptz)
+returns void language plpgsql immutable set search_path=pg_catalog,public as $$
+begin
+  if p_start_time is null or p_end_time is null
+     or date_trunc('minute',p_start_time)<>p_start_time
+     or date_trunc('minute',p_end_time)<>p_end_time
+     or p_end_time<=p_start_time
+     or p_end_time-p_start_time<interval '30 minutes'
+     or p_end_time-p_start_time>interval '24 hours' then
+    raise exception 'INVALID_DURATION: Court blocks must be between 30 minutes and 24 hours.' using errcode='check_violation';
+  end if;
+end; $$;
+revoke all on function public.assert_court_block_contract(timestamptz,timestamptz) from public,anon,authenticated;
+
 -- Availability remains PII-free while retaining completed occupancy for the
 -- current Beirut day so today's schedule does not shrink after completion.
 create or replace view public.court_occupancy with (security_invoker = off) as
@@ -152,7 +166,10 @@ begin
   -- second court is ever added a client could pass a different court_id and slip
   -- past the overlap guard for the same physical slot. Pinning every main-court
   -- booking to one id keeps them all in the same overlap partition.
-  select id into v_main_court_id from public.courts where is_active = true order by name limit 1;
+  select value::uuid into v_main_court_id from public.app_config where key='main_court_id';
+  if v_main_court_id is null then
+    select id into v_main_court_id from public.courts where is_active=true limit 1;
+  end if;
   if v_main_court_id is null then
     raise exception 'INVALID_PAYLOAD: No active court is configured.' using errcode = '22023';
   end if;
@@ -338,7 +355,7 @@ begin
       values(v_booking.user_id,'No-show recorded','A no-show was recorded: '||v_reason,'booking_no_show','booking',v_booking.id)
       returning id into v_notification_id;
   elsif p_action = 'reschedule' then
-    if v_booking.status = 'cancelled' then raise exception 'INVALID_STATE: Cancelled bookings cannot be rescheduled.' using errcode = 'check_violation'; end if;
+    if v_booking.status <> 'confirmed' then raise exception 'INVALID_STATE: Only confirmed bookings can be rescheduled.' using errcode = 'check_violation'; end if;
     if jsonb_typeof(p_payload) <> 'object'
        or not (p_payload ? 'start_time' and p_payload ? 'end_time' and p_payload ? 'duration_minutes')
        or jsonb_typeof(p_payload -> 'start_time') <> 'string'
@@ -415,12 +432,15 @@ declare
   v_cached jsonb; v_response jsonb; v_item jsonb; v_row public.bookings%rowtype;
   v_block public.court_blocks%rowtype; v_created jsonb:='[]'::jsonb; v_skipped jsonb:='[]'::jsonb;
   v_user_id uuid; v_notification_id uuid; v_start timestamptz; v_end timestamptz; v_duration integer;
+  v_main_court_id uuid; v_error_message text;
 begin
   if not exists(select 1 from public.users where id=p_actor_user_id and is_admin) then raise exception 'ADMIN_REQUIRED: Admin access required.' using errcode='insufficient_privilege'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_actor_user_id::text||':schedule:'||p_request_id::text,0));
   select response into v_cached from public.security_mutation_receipts where actor_user_id=p_actor_user_id and operation='admin.schedule.'||p_action and request_id=p_request_id;
   if found then return v_cached || jsonb_build_object('replayed', true); end if;
   if p_action='block_create' then
+    select value::uuid into v_main_court_id from public.app_config where key='main_court_id';
+    if v_main_court_id is null then raise exception 'INVALID_REFERENCE: Main court is not configured.' using errcode='foreign_key_violation'; end if;
     begin
       v_start := (p_payload->>'start_time')::timestamptz;
       v_end := (p_payload->>'end_time')::timestamptz;
@@ -428,8 +448,8 @@ begin
     exception when others then
       raise exception 'INVALID_PAYLOAD: Block fields are missing or malformed.' using errcode='22023';
     end;
-    perform public.assert_booking_time_contract(v_start, v_end, v_duration, false);
-    insert into public.court_blocks(court_id,start_time,end_time,reason) values((p_payload->>'court_id')::uuid,v_start,v_end,btrim(p_payload->>'reason')) returning * into v_block;
+    perform public.assert_court_block_contract(v_start,v_end);
+    insert into public.court_blocks(court_id,start_time,end_time,reason) values(v_main_court_id,v_start,v_end,btrim(p_payload->>'reason')) returning * into v_block;
     v_response:=jsonb_build_object('block',to_jsonb(v_block));
     insert into public.admin_audit_logs(admin_user_id,action,entity_type,entity_id,summary,metadata) values(p_actor_user_id,'court_block.create','court_block',v_block.id,'Created court block',p_payload);
   elsif p_action='block_remove' then
@@ -438,6 +458,10 @@ begin
     v_response:=jsonb_build_object('removed_id',v_block.id);
     insert into public.admin_audit_logs(admin_user_id,action,entity_type,entity_id,summary,metadata) values(p_actor_user_id,'court_block.remove','court_block',v_block.id,'Removed court block','{}');
   elsif p_action='coach_create' then
+    select value::uuid into v_main_court_id from public.app_config where key='main_court_id';
+    if v_main_court_id is null or not exists(select 1 from public.courts where id=v_main_court_id and is_active) then
+      raise exception 'INVALID_REFERENCE: Main court is not configured.' using errcode='foreign_key_violation';
+    end if;
     for v_item in select value from jsonb_array_elements(p_payload->'bookings') loop
       v_user_id:=coalesce(v_user_id,(v_item->>'user_id')::uuid);
       if v_user_id is distinct from (v_item->>'user_id')::uuid then raise exception 'INVALID_PAYLOAD: Coaching batch owners must match.' using errcode='22023'; end if;
@@ -445,19 +469,38 @@ begin
         v_start := (v_item->>'start_time')::timestamptz;
         v_end := (v_item->>'end_time')::timestamptz;
         v_duration := (v_item->>'duration_minutes')::integer;
-        perform public.assert_booking_time_contract(v_start, v_end, v_duration, false);
+      exception when others then
+        raise exception 'INVALID_PAYLOAD: Coaching fields are malformed.' using errcode='22023';
+      end;
+      if v_start<=now() then raise exception 'PAST_START: Coaching sessions must start in the future.' using errcode='check_violation'; end if;
+      perform public.assert_booking_time_contract(v_start,v_end,v_duration,true);
+      begin
         insert into public.bookings(id,user_id,booking_type,sport_type,court_id,coach_id,uses_main_court,court_half,start_time,end_time,duration_minutes,total_price,status,is_recurring,recurrence_group_id,is_free_reward,ball_machine,no_show)
-        values((v_item->>'id')::uuid,v_user_id,'coach',(v_item->>'sport_type')::public.sport_type,nullif(v_item->>'court_id','')::uuid,(v_item->>'coach_id')::uuid,coalesce((v_item->>'uses_main_court')::boolean,true),'full',v_start,v_end,v_duration,coalesce((v_item->>'total_price')::numeric,0),'confirmed',coalesce((v_item->>'is_recurring')::boolean,false),nullif(v_item->>'recurrence_group_id','')::uuid,false,false,false) returning * into v_row;
+        values((v_item->>'id')::uuid,v_user_id,'coach',(v_item->>'sport_type')::public.sport_type,
+          case when coalesce((v_item->>'uses_main_court')::boolean,true) then v_main_court_id else null end,
+          (v_item->>'coach_id')::uuid,coalesce((v_item->>'uses_main_court')::boolean,true),'full',v_start,v_end,v_duration,coalesce((v_item->>'total_price')::numeric,0),'confirmed',coalesce((v_item->>'is_recurring')::boolean,false),nullif(v_item->>'recurrence_group_id','')::uuid,false,false,false) returning * into v_row;
         v_created:=v_created||jsonb_build_array(to_jsonb(v_row));
-      exception when exclusion_violation or check_violation or unique_violation then
+      exception when exclusion_violation or unique_violation then
         v_skipped:=v_skipped||jsonb_build_array(jsonb_build_object(
           'id',v_item->>'id',
           'code',case when sqlstate='23P01' then 'BOOKING_CONFLICT' else 'INVALID_OCCURRENCE' end,
           'reason',case when sqlstate='23P01' then 'That occurrence conflicts with an existing booking.' else 'That occurrence could not be created.' end
         ));
+      when check_violation then
+        get stacked diagnostics v_error_message=message_text;
+        if v_error_message like 'COURT_BLOCKED:%' then
+          v_skipped:=v_skipped||jsonb_build_array(jsonb_build_object('id',v_item->>'id','code','COURT_BLOCKED','reason','The court is blocked during this occurrence.'));
+        else
+          raise;
+        end if;
       end;
     end loop;
-    if jsonb_array_length(v_created)=0 then raise exception 'BOOKING_CONFLICT: No coaching occurrences were available.' using errcode='check_violation'; end if;
+    if jsonb_array_length(v_created)=0 then
+      if v_skipped->0->>'code'='COURT_BLOCKED' then
+        raise exception 'COURT_BLOCKED: All coaching occurrences are blocked.' using errcode='check_violation';
+      end if;
+      raise exception 'BOOKING_CONFLICT: No coaching occurrences were available.' using errcode='check_violation';
+    end if;
     insert into public.user_notifications(user_id,title,message,type,related_entity_type,related_entity_id)
       values(v_user_id,'Coaching session booked',jsonb_array_length(v_created)||' coaching session(s) booked.','booking_coach_created','booking',(v_created->0->>'id')::uuid) returning id into v_notification_id;
     insert into public.admin_audit_logs(admin_user_id,action,entity_type,entity_id,summary,metadata)
@@ -502,6 +545,7 @@ begin
       on conflict(key) do update set value=excluded.value;
   elsif p_action='config_values' then
     for v_item in select key,value from jsonb_each(p_payload->'values') loop
+      if v_item.key='main_court_id' then raise exception 'INVALID_PAYLOAD: Main court configuration is server-managed.' using errcode='22023'; end if;
       if jsonb_typeof(v_item.value)='number' then insert into public.app_settings(key,value) values(v_item.key,(v_item.value#>>'{}')::numeric) on conflict(key) do update set value=excluded.value;
       else insert into public.app_config(key,value) values(v_item.key,v_item.value#>>'{}') on conflict(key) do update set value=excluded.value; end if;
     end loop;

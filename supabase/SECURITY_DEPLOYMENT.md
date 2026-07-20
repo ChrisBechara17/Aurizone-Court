@@ -14,6 +14,14 @@ Run `security-boundary.sql` in the Supabase SQL editor. This creates security
 events, rate-limit state, the limiter RPC, and booking immutability protection.
 It leaves legacy application writes enabled for compatibility testing.
 
+For the July 2026 remediation, re-run the updated
+`post-lockdown-integrity.sql` and `server-booking-reminders.sql`, then apply
+`remediation-2026-07.sql`. The remediation intentionally fails if there is not
+exactly one row named `Main Court` or if existing operating hours are inverted;
+resolve those data issues from the verified backup before retrying.
+Run `remediation-preflight.sql` first to perform those checks without changing
+data.
+
 ## 3. Set server secrets
 
 Set these in Supabase Dashboard > Edge Functions > Secrets:
@@ -72,8 +80,9 @@ curl.exe -i "$env:SUPABASE_URL/rest/v1/$table?select=id&limit=1" `
 ```
 
 The anonymous request must return `401` or `403`; the authenticated request must
-return `200`. Repeat with `court_blocks`, `app_settings`, `app_config`, and
-`operating_hours`.
+return `200`. Repeat with `court_blocks`, `app_settings`, `app_config`,
+`operating_hours`, `courts`, `sport_prices`, `court_rules`, and
+`membership_packages`.
 
 ## Rollback
 

@@ -9,6 +9,8 @@
 drop policy if exists "users create own bookings" on public.bookings;
 drop policy if exists "users update own bookings" on public.bookings;
 drop policy if exists "admins manage all bookings" on public.bookings;
+drop policy if exists "admin write courts" on public.courts;
+drop policy if exists "admin write membership_packages" on public.membership_packages;
 
 drop policy if exists "admin write coaches" on public.coaches;
 drop policy if exists "admin update coaches" on public.coaches;
@@ -29,6 +31,7 @@ drop policy if exists "users insert own push tokens" on public.push_tokens;
 drop policy if exists "users update own push tokens" on public.push_tokens;
 
 revoke insert, update, delete on public.bookings from authenticated;
+revoke insert, update, delete on public.courts, public.membership_packages from authenticated;
 revoke insert, update, delete on public.coaches, public.court_blocks, public.sport_prices,
   public.court_rules, public.operating_hours, public.app_config, public.app_settings,
   public.admin_audit_logs, public.loyalty_transactions from authenticated;

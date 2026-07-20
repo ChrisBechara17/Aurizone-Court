@@ -9,7 +9,7 @@ const body = z.discriminatedUnion('action', [
   z.object({ requestId: uuid, action: z.literal('block_create'), courtId: uuid, startTime: isoDate, endTime: isoDate, reason: z.string().trim().min(1).max(500) }).strict(),
   z.object({ requestId: uuid, action: z.literal('block_remove'), blockId: uuid }).strict(),
   z.object({ requestId: uuid, action: z.literal('coach_create'), bookings: z.array(z.object({
-    id: uuid, userId: uuid, sportType: z.enum(['basketball', 'tennis']), courtId: uuid.nullable(), coachId: uuid,
+    id: uuid, userId: uuid, sportType: z.enum(['basketball', 'tennis']), courtId: uuid.nullable().optional(), coachId: uuid,
     usesMainCourt: z.boolean(), startTime: isoDate, endTime: isoDate, durationMinutes: z.number().int().min(30).max(180),
     isRecurring: z.boolean(), recurrenceGroupId: uuid.nullable(), totalPrice: z.number().nonnegative(),
   }).strict()).min(1).max(6) }).strict(),
@@ -39,7 +39,7 @@ Deno.serve((req) => run(req, true, async (ctx) => {
 
   const scheduleAction = input.action === 'block_create' || input.action === 'block_remove' || input.action === 'coach_create';
   const payload = input.action === 'coach_create'
-    ? { bookings: input.bookings.map((b) => ({ ...b, user_id: b.userId, sport_type: b.sportType, court_id: b.courtId, coach_id: b.coachId, uses_main_court: b.usesMainCourt, start_time: b.startTime, end_time: b.endTime, duration_minutes: b.durationMinutes, total_price: b.totalPrice, is_recurring: b.isRecurring, recurrence_group_id: b.recurrenceGroupId })) }
+    ? { bookings: input.bookings.map((b) => ({ ...b, user_id: b.userId, sport_type: b.sportType, coach_id: b.coachId, uses_main_court: b.usesMainCourt, start_time: b.startTime, end_time: b.endTime, duration_minutes: b.durationMinutes, total_price: b.totalPrice, is_recurring: b.isRecurring, recurrence_group_id: b.recurrenceGroupId })) }
     : input.action === 'block_create'
       ? { court_id: input.courtId, start_time: input.startTime, end_time: input.endTime, reason: input.reason }
       : input.action === 'block_remove'

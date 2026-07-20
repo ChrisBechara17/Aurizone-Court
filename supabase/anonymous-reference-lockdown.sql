@@ -16,7 +16,11 @@ begin
     'public.court_blocks',
     'public.app_settings',
     'public.app_config',
-    'public.operating_hours'
+    'public.operating_hours',
+    'public.courts',
+    'public.sport_prices',
+    'public.court_rules',
+    'public.membership_packages'
   ] loop
     if to_regclass(t) is not null then
       execute format('revoke select on %s from anon', t);

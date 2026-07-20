@@ -1,3 +1,5 @@
+-- FRESH INSTALL ONLY. This file creates non-idempotent enums, tables, and seed
+-- rows; never rerun it against an existing database.
 -- ============================================================================
 -- CourtHub — Supabase / Postgres schema
 -- Mirrors src/models/index.ts. Run in the Supabase SQL editor.

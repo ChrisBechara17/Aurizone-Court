@@ -1,7 +1,8 @@
 # Supabase SQL Run Order
 
 Run these files in the Supabase SQL editor in this order for a fresh project.
-Most files are idempotent and safe to rerun, but keep the order because later
+Most files are idempotent and safe to rerun. `schema.sql` is fresh-install-only
+and must not be rerun against an existing database. Keep the order because later
 files depend on tables/functions from earlier files.
 
 Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup.
@@ -88,7 +89,14 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
     - Authenticated reads are unchanged. Run the REST checks in
       `SECURITY_DEPLOYMENT.md` after applying it.
 
-19. `peak-pricing.sql` (MUST be last)
+19. `server-booking-reminders.sql`
+    - Adds the server reminder ledger and stale-delivery cleanup trigger.
+
+20. `remediation-2026-07.sql`
+    - Pins the canonical Main Court, closes remaining reference-data access,
+      and installs transactional push-token ownership RPCs.
+
+21. `peak-pricing.sql` (MUST be last)
     - Adds peak-price support for bookings starting from 4 PM Asia/Beirut.
     - Redefines `compute_booking_price()` as the single authoritative version,
       folding in peak selection, the half-court rate, span-based hours, and the
@@ -116,6 +124,10 @@ redeploy all secure mutation Edge Functions. Run `venue-location.sql` afterward
 to publish the RizeON Maps destination, then run
 `anonymous-reference-lockdown.sql` to apply the intentional anonymous API
 change.
+
+Re-run `server-booking-reminders.sql`, then apply `remediation-2026-07.sql`.
+Redeploy `device-token`, `admin-bookings`, and the other secure functions after
+the SQL succeeds. Finally re-run `security-lockdown.sql`.
 
 Finally, re-run `peak-pricing.sql` LAST so the authoritative peak-aware
 `compute_booking_price()` is the version installed — any run that applies

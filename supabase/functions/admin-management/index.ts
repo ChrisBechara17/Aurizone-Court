@@ -20,6 +20,15 @@ const body = z.discriminatedUnion('action', [
 Deno.serve((req) => run(req, true, async (ctx) => {
   await limit(ctx, 'admin-management', 120, 600);
   const input = await parse(req, body);
+  if (input.action === 'config_values') {
+    const allowed = new Set([
+      'tier_perks_bronze','tier_perks_silver','tier_perks_gold','tier_perks_platinum',
+      'loyalty_first_booking_bonus','loyalty_points_per_booking','loyalty_completion_bonus','loyalty_no_show_penalty',
+    ]);
+    if (Object.keys(input.values).some((key) => !allowed.has(key))) {
+      throw Object.assign(new Error('Unsupported configuration key.'), { status: 400, code: 'INVALID_PAYLOAD' });
+    }
+  }
   const payload: Record<string, unknown> = 'id' in input ? { id: input.id } : {};
   if ('name' in input) Object.assign(payload, { name: input.name, supported_sports: input.supportedSports, bio: input.bio, price_per_hour: input.pricePerHour, phone: input.phone });
   if (input.action === 'support_phone') payload.value = input.value;

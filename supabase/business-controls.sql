@@ -13,6 +13,14 @@ create table if not exists public.operating_hours (
   constraint chk_operating_hours_order check (is_closed = true or close_time > open_time)
 );
 
+do $$ begin
+  if not exists (select 1 from pg_constraint where conrelid='public.operating_hours'::regclass and conname='chk_operating_hours_order') then
+    alter table public.operating_hours add constraint chk_operating_hours_order
+      check (is_closed=true or close_time>open_time) not valid;
+  end if;
+end $$;
+alter table public.operating_hours validate constraint chk_operating_hours_order;
+
 insert into public.operating_hours (day_of_week, open_time, close_time, is_closed)
 select d, '08:00'::time, '24:00'::time, false
 from generate_series(0, 6) as d

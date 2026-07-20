@@ -72,7 +72,7 @@ export async function limit(ctx: RequestContext, action: string, count: number, 
     p_limit: count,
     p_window_seconds: seconds,
   });
-  if (error) throw error;
+  if (error) rpcError(error);
   const result = data?.[0];
   if (!result?.allowed) {
     await securityEvent(ctx, action, 'rate_limited', { retryAfter: result?.retry_after_seconds });
@@ -117,6 +117,7 @@ const PUBLIC_RPC_ERRORS: Record<string, { status: number; message: string }> = {
   CANCELLATION_CUTOFF: { status: 409, message: 'Bookings cannot be cancelled within 3 hours of the start time.' },
   COURT_BLOCKED: { status: 409, message: 'The court is blocked during this time.' },
   COURT_CLOSED: { status: 400, message: 'The court is closed on the selected day.' },
+  DUPLICATE: { status: 409, message: 'This action was already applied.' },
   INVALID_ACTION: { status: 400, message: 'That action is not supported.' },
   INVALID_COURT_HALF: { status: 400, message: 'The selected court half is invalid.' },
   INVALID_DURATION: { status: 400, message: 'Duration must be between 30 minutes and 3 hours and match the selected times.' },
@@ -132,6 +133,7 @@ const PUBLIC_RPC_ERRORS: Record<string, { status: number; message: string }> = {
   REWARD_BATCH_INVALID: { status: 400, message: 'Free rewards cannot be combined with recurring bookings.' },
   REWARD_UNAVAILABLE: { status: 409, message: 'A free reward is not currently available.' },
   SERVICE_ROLE_REQUIRED: { status: 403, message: 'This operation is restricted to the trusted server.' },
+  TOKEN_OWNERSHIP: { status: 409, message: 'This device token is active for another account. Sign out there before registering it here.' },
   USER_FIELD_IMMUTABLE: { status: 403, message: 'Protected account fields cannot be changed directly.' },
 };
 
@@ -144,7 +146,8 @@ export function rpcError(error: { message?: string; code?: string } | null): nev
     throw Object.assign(new Error('That time was just booked. Please choose another available slot.'), { status: 409, code: 'BOOKING_CONFLICT' });
   }
   if (sqlstate === '23505') {
-    throw Object.assign(new Error('This action was already applied.'), { status: 409, code: 'DUPLICATE' });
+    const duplicate = PUBLIC_RPC_ERRORS.DUPLICATE;
+    throw Object.assign(new Error(duplicate.message), { status: duplicate.status, code: 'DUPLICATE' });
   }
   const raw = error?.message ?? '';
   const tag = /^([A-Z][A-Z0-9_]+):(?:\s|$)/.exec(raw)?.[1];
@@ -168,7 +171,11 @@ export async function run(req: Request, requireAdmin: boolean, handler: (ctx: Re
   } catch (error) {
     const e = error as Error & { status?: number; code?: string; retryAfter?: number; details?: unknown };
     if (ctx && e.code === 'INVALID_PAYLOAD') await securityEvent(ctx, 'request', 'invalid_payload', { details: e.details });
-    return response({ ok: false, error: e.message || 'Request failed.', code: e.code ?? 'SERVER_ERROR', retryAfter: e.retryAfter }, e.status ?? 500);
+    if (e.code && e.status) {
+      return response({ ok: false, error: e.message || 'Request failed.', code: e.code, retryAfter: e.retryAfter }, e.status);
+    }
+    console.error('Suppressed untyped Edge Function error', error);
+    return response({ ok: false, error: 'Something went wrong. Please try again.', code: 'SERVER_ERROR' }, 500);
   }
 }
 

@@ -54,6 +54,11 @@ begin
     raise exception 'AUTH_REQUIRED: Authentication required.' using errcode = 'insufficient_privilege';
   end if;
 
+  perform pg_advisory_xact_lock(hashtextextended(push_token,0));
+  if exists(select 1 from public.push_tokens where token=push_token and user_id<>auth.uid() and is_active) then
+    raise exception 'TOKEN_OWNERSHIP: Push token belongs to an active account.' using errcode='check_violation';
+  end if;
+
   return query
   insert into public.push_tokens (user_id, token, platform, device_id, is_active, updated_at)
   values (auth.uid(), push_token, push_platform, push_device_id, true, now())

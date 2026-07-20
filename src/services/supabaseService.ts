@@ -432,7 +432,6 @@ export const supabaseService = {
             id: b.id,
             userId: b.userId,
             sportType: b.sportType,
-            courtId: b.courtId,
             coachId: b.coachId,
             usesMainCourt: b.usesMainCourt,
             startTime: b.startTime,

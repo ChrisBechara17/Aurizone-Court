@@ -34,6 +34,19 @@ create index if not exists idx_booking_reminder_deliveries_due
 alter table public.booking_reminder_deliveries enable row level security;
 revoke all on public.booking_reminder_deliveries from anon, authenticated;
 
+create or replace function public.cleanup_stale_booking_reminders()
+returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+  delete from public.booking_reminder_deliveries
+  where booking_id=new.id and status<>'sent'
+    and (new.status<>'confirmed' or new.no_show or booking_start_time<>new.start_time);
+  return new;
+end; $$;
+drop trigger if exists trg_cleanup_stale_booking_reminders on public.bookings;
+create trigger trg_cleanup_stale_booking_reminders
+  after update of start_time,status,no_show on public.bookings for each row
+  execute function public.cleanup_stale_booking_reminders();
+
 create or replace function public.claim_due_booking_reminders(p_limit integer default 100)
 returns table (
   delivery_id uuid,
