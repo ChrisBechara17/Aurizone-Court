@@ -1,26 +1,26 @@
 import { Text, View } from 'react-native';
 import { format, parseISO } from 'date-fns';
-import { Booking, CourtBlock } from '@/models';
+import { Booking, Coach, CourtBlock } from '@/models';
 import { COLORS, sportAccent, sportLabel } from '@/constants/colors';
 import { OPEN_HOUR, CLOSE_HOUR, fmtTime, sameVenueDate, timeToMinutes, venueMinutesForInstant } from '@/utils/dateUtils';
-import { COACHES } from '@/data/seedData';
 
 const HOUR_HEIGHT = 64;
 const GUTTER = 56;
 
 const hourLabel = (h: number) => format(new Date(2000, 0, 1, h % 24), 'h a');
-const coachName = (id: string | null) => COACHES.find((c) => c.id === id)?.name ?? 'Coach';
 
 interface Props {
   date: Date;
   bookings: Booking[];
   courtBlocks: CourtBlock[];
+  coaches: Coach[];
   openTime?: string;
   closeTime?: string;
 }
 
 /** Vertical day timeline of Main Court occupancy (the one shared court). */
-export function CourtTimeline({ date, bookings, courtBlocks, openTime, closeTime }: Props) {
+export function CourtTimeline({ date, bookings, courtBlocks, coaches, openTime, closeTime }: Props) {
+  const coachName = (id: string | null) => coaches.find((c) => c.id === id)?.name ?? 'Coach';
   const openHour = openTime ? timeToMinutes(openTime) / 60 : OPEN_HOUR;
   const closeHour = closeTime ? timeToMinutes(closeTime) / 60 : CLOSE_HOUR;
   const totalHours = closeHour - openHour;

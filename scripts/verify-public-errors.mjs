@@ -25,10 +25,18 @@ function sqlFiles(directory) {
 const failures = [];
 for (const path of sqlFiles(join(root, 'supabase'))) {
   const source = readFileSync(path, 'utf8');
-  for (const match of source.matchAll(/raise\s+exception\s+'((?:[^']|'')*)'/gi)) {
-    const message = match[1].replaceAll("''", "'");
+  const scannable = source.replace(/--[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const match of scannable.matchAll(/\braise\b[\s\S]*?;/gi)) {
+    const statement = match[0];
+    if (/^raise\s*;$/i.test(statement.trim())) continue; // PL/pgSQL rethrow
+    const literal = /^raise\s+(?:exception\s+)?'((?:[^']|'')*)'/i.exec(statement.trim());
+    const line = scannable.slice(0, match.index).split(/\r?\n/).length;
+    if (!literal) {
+      failures.push(`${relative(root, path)}:${line} has a dynamic or unsupported RAISE statement`);
+      continue;
+    }
+    const message = literal[1].replaceAll("''", "'");
     const code = /^([A-Z][A-Z0-9_]+):(?:\s|$)/.exec(message)?.[1];
-    const line = source.slice(0, match.index).split(/\r?\n/).length;
     if (!code) {
       failures.push(`${relative(root, path)}:${line} has an untagged exception: ${message}`);
     } else if (!allowedCodes.has(code)) {

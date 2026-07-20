@@ -1,9 +1,10 @@
-import { Booking, BookingStatus, CourtBlock, CourtHalf, SportType } from '@/models';
-import { BALL_MACHINE_RATE, BASKETBALL_HALF_RATE, getSportPrice, MAX_DURATION_HOURS } from '@/constants/prices';
+import { Booking, BookingStatus, CourtBlock, CourtHalf, Pricing, SportType } from '@/models';
+import { courtRate, MAX_DURATION_HOURS } from '@/constants/prices';
 import {
   calculateEndTime,
   combineDateAndTime,
   generateWeeklyOccurrences,
+  isPeakStart,
 } from '@/utils/dateUtils';
 import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
 import { computeStanding } from '@/utils/accountStanding';
@@ -20,11 +21,6 @@ export function uuidv4(): string {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-/** Price = price/hour for the sport * duration. Display only. */
-export function calculateTotalPrice(sportType: SportType, durationHours: number): number {
-  return getSportPrice(sportType) * durationHours;
 }
 
 /** Bookings auto-confirm when <= 3h; longer is disallowed at the call sites. */
@@ -68,6 +64,7 @@ export function createCourtBooking(
   input: CourtBookingInput,
   existing: Booking[],
   courtBlocks: CourtBlock[],
+  pricing: Pricing,
 ): CreateResult {
   // Standing & the one-booking limit are per-user; court conflicts span everyone.
   const userBookings = existing.filter((b) => b.userId === input.userId);
@@ -93,7 +90,6 @@ export function createCourtBooking(
   const useFree = !!input.useFreeSession && weeks === 1;
   // Ball machine is a tennis-only paid add-on.
   const ballMachine = !!input.ballMachine && input.sportType === 'tennis';
-  const machineCost = ballMachine ? BALL_MACHINE_RATE * input.durationHours : 0;
   // Half court is a basketball-only option; picks whichever side is free.
   const half = !!input.halfCourt && input.sportType === 'basketball';
 
@@ -151,8 +147,10 @@ export function createCourtBooking(
     }
 
     // Free reward covers the court; ball-machine add-on (tennis) is still charged.
-    const fullCost = useFree ? machineCost : calculateTotalPrice(input.sportType, input.durationHours) + machineCost;
-    const halfCost = useFree ? 0 : BASKETBALL_HALF_RATE * input.durationHours;
+    const machineCost = ballMachine ? pricing.ballMachineRate * input.durationHours : 0;
+    const liveRate = courtRate(pricing,input.sportType,half,isPeakStart(occStart));
+    const fullCost = useFree ? machineCost : liveRate * input.durationHours + machineCost;
+    const halfCost = useFree ? 0 : liveRate * input.durationHours;
 
     const booking: Booking = {
       id: uuidv4(),

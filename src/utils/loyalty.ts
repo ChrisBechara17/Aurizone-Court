@@ -119,7 +119,7 @@ export function computeLoyalty(
   // "use a free session" toggle for a reward the server rejects/charges.
   const now = Date.now();
   const goodBookings = bookings.filter(
-    (b) => b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
+    (b) => b.status === 'completed' && b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
   ).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   // Redemption is derived from bookings flagged as free (cancelled ones refund automatically).
@@ -164,7 +164,7 @@ export function computeLoyaltyFromTransactions(
   // Real admin completions only (see computeLoyalty for the rationale).
   const now = Date.now();
   const goodBookings = bookings.filter(
-    (b) => b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
+    (b) => b.status === 'completed' && b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
   ).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;

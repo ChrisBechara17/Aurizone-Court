@@ -159,6 +159,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  let bookingRevision = 0;
   /** Schedule reminders for new bookings and persist their notification ids. */
   const attachReminders = async (created: Booking[]): Promise<Booking[]> => {
     if (secureWritesEnabled) return created;
@@ -302,6 +303,7 @@ export const useAppStore = create<AppState>((set, get) => {
     /** Load all shared data from Supabase. Resilient: one failing query does not
      *  discard the others (e.g. a missing view won't wipe the loaded court). */
     refresh: async () => {
+      const refreshBookingRevision = bookingRevision;
       const refreshUserId = get().user?.id ?? null;
       const isAdmin = !!get().user?.isAdmin;
       const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, venueR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR] = await Promise.allSettled([
@@ -329,8 +331,10 @@ export const useAppStore = create<AppState>((set, get) => {
       if (courtR.status === 'fulfilled' && courtR.value) patch.court = courtR.value;
       if (coachesR.status === 'fulfilled') patch.coaches = coachesR.value;
       if (blocksR.status === 'fulfilled') patch.courtBlocks = blocksR.value;
-      if (bookingsR.status === 'fulfilled') patch.bookings = bookingsR.value;
-      if (occR.status === 'fulfilled') patch.occupancy = occR.value;
+      if (bookingRevision === refreshBookingRevision) {
+        if (bookingsR.status === 'fulfilled') patch.bookings = bookingsR.value;
+        if (occR.status === 'fulfilled') patch.occupancy = occR.value;
+      }
       if (usersR.status === 'fulfilled') patch.users = usersR.value;
       if (pricingR.status === 'fulfilled') patch.pricing = pricingR.value;
       if (loyaltyR.status === 'fulfilled') patch.loyaltySettings = loyaltyR.value;
@@ -353,6 +357,7 @@ export const useAppStore = create<AppState>((set, get) => {
       // previous session repopulate the next account's private state.
       if ((get().user?.id ?? null) !== refreshUserId) return;
       set(patch);
+      if (bookingRevision !== refreshBookingRevision) setTimeout(() => void get().refresh(), 0);
     },
 
     completeOnboarding: async () => {
@@ -508,6 +513,7 @@ export const useAppStore = create<AppState>((set, get) => {
           { ...input, userId: user.id, courtId: court.id },
           [...bookings, ...occupancy],
           courtBlocks,
+          get().pricing,
         );
       };
 
@@ -543,6 +549,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
 
       const withIds = await attachReminders(saved);
+      bookingRevision += 1;
       set({
         bookings: mergeById(get().bookings, withIds),
         occupancy: mergeById(get().occupancy, withIds),
@@ -647,6 +654,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
       // Schedule reminders + persist their notification ids, same as bookCourt.
       const stored = await attachReminders(saved.length > 0 ? saved : created);
+      bookingRevision += 1;
       set({
         bookings: mergeById(get().bookings, stored),
         // A court-using coach session occupies the Main Court, so add it to the
@@ -695,6 +703,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, error: e?.message ?? 'Could not cancel booking.' };
       }
       if (!secureWritesEnabled) void cancelReminder(target.notificationId);
+      bookingRevision += 1;
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'cancelled', cancelledAt, cancelReason: reason.trim() || null } : b,
@@ -718,13 +727,14 @@ export const useAppStore = create<AppState>((set, get) => {
     markBookingCompleted: async (id) => {
       const target = get().bookings.find((b) => b.id === id);
       if (!target) return { ok: false, error: 'Booking not found.' };
-      if (target.status === 'cancelled') return { ok: false, error: 'Cancelled bookings cannot be completed.' };
+      if (target.status !== 'confirmed') return { ok: false, error: 'Only confirmed bookings can be completed.' };
       const completedAt = new Date().toISOString();
       try {
         await supabaseService.updateBooking(id, { status: 'completed', completedAt, noShow: false, noShowReason: null });
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark booking completed.' };
       }
+      bookingRevision += 1;
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'completed', completedAt, noShow: false, noShowReason: null } : b,
@@ -741,12 +751,13 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!target) return { ok: false, error: 'Booking not found.' };
       const cleanReason = reason.trim();
       if (!cleanReason) return { ok: false, error: 'A no-show reason is required.' };
-      if (target.status === 'cancelled') return { ok: false, error: 'Cancelled bookings cannot be marked no-show.' };
+      if (target.status !== 'confirmed') return { ok: false, error: 'Only confirmed bookings can be marked no-show.' };
       try {
         await supabaseService.updateBooking(id, { noShow: true, noShowReason: cleanReason });
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark no-show.' };
       }
+      bookingRevision += 1;
       set({
         bookings: get().bookings.map((b) => (b.id === id ? { ...b, noShow: true, noShowReason: cleanReason } : b)),
       });
@@ -760,7 +771,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!admin?.isAdmin) return { ok: false, error: 'Only admins can reschedule bookings.' };
       const target = get().bookings.find((b) => b.id === id);
       if (!target) return { ok: false, error: 'Booking not found.' };
-      if (target.status === 'cancelled') return { ok: false, error: 'Cancelled bookings cannot be rescheduled.' };
+      if (target.status !== 'confirmed') return { ok: false, error: 'Only confirmed bookings can be rescheduled.' };
       if (input.durationHours > MAX_DURATION_HOURS) return { ok: false, error: 'Bookings longer than 3 hours are not allowed.' };
 
       const start = combineDateAndTime(input.date, input.startTime);
@@ -850,6 +861,7 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }
 
+      bookingRevision += 1;
       set({
         bookings: get().bookings.map((b) => (b.id === id ? { ...updated, notificationId } : b)),
         occupancy: get().occupancy.map((b) => (b.id === id ? { ...b, startTime, endTime, durationMinutes } : b)),

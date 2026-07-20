@@ -162,9 +162,7 @@ for the scheduled reminder worker.
 Run the local quality gates before committing:
 
 ```powershell
-npm.cmd run lint
-npx.cmd tsc --noEmit
-npm.cmd run verify:public-errors
+npm.cmd run check
 npx.cmd expo install --check
 ```
 
