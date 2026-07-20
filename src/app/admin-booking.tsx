@@ -12,7 +12,8 @@ import { DurationSelector } from '@/components/DurationSelector';
 import { TimeSlotPicker } from '@/components/TimeSlotPicker';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
-import { fmtDateLong, fmtTime, formatDuration, isPeakStart, parseISO } from '@/utils/dateUtils';
+import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
+import { fmtDateLong, fmtTime, formatDuration, isPeakStart, parseISO, venueCalendarDate, venueDateKeyForInstant, venueTimeForInstant } from '@/utils/dateUtils';
 
 /**
  * Admin booking detail. Shows the full booking, who made it (tap through to the
@@ -37,6 +38,7 @@ export default function AdminBookingScreen() {
   const [rescheduleTime, setRescheduleTime] = useState('12:00');
   const [rescheduleDuration, setRescheduleDuration] = useState(1);
   const [overrideHours, setOverrideHours] = useState(false);
+  const mfaReady = useRequireAdminMfa();
 
   const booking = bookings.find((b) => b.id === id);
 
@@ -47,12 +49,13 @@ export default function AdminBookingScreen() {
   if (booking && booking.id !== prevBookingId) {
     setPrevBookingId(booking.id);
     const startDate = parseISO(booking.startTime);
-    setRescheduleDate(startDate);
-    setRescheduleTime(toHHmm(startDate));
+    setRescheduleDate(venueCalendarDate(venueDateKeyForInstant(startDate)));
+    setRescheduleTime(venueTimeForInstant(startDate));
     setRescheduleDuration(booking.durationMinutes / 60);
   }
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
+  if (!mfaReady) return null; // useRequireAdminMfa redirects to /admin-mfa
   if (!booking) return <Redirect href="/admin" />;
 
   const bookedBy = users.find((u) => u.id === booking.userId);
@@ -310,12 +313,6 @@ function actionInputStyle() {
     color: COLORS.text,
     fontSize: 14,
   } as const;
-}
-
-function toHHmm(d: Date): string {
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
 }
 
 function ActionButton({

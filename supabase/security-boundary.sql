@@ -64,12 +64,17 @@ declare
   v_row public.security_rate_limits%rowtype;
 begin
   if p_actor_user_id is null or p_limit < 1 or p_window_seconds < 1 then
-    raise exception 'Invalid rate-limit input.' using errcode = '22023';
+    raise exception 'INVALID_PAYLOAD: Invalid rate-limit input.' using errcode = '22023';
   end if;
 
+  -- Key the bucket on user + action ONLY. This function is always called with an
+  -- authenticated actor, so folding the network hash into the key would give one
+  -- user a fresh bucket per source IP, letting them reset a per-user throttle by
+  -- rotating IPs. p_network_hash is retained in the signature (and security_events)
+  -- for audit, but must not weaken the per-user limit.
   v_key := encode(
     extensions.digest(
-      p_actor_user_id::text || ':' || p_action || ':' || coalesce(p_network_hash, ''),
+      p_actor_user_id::text || ':' || p_action,
       'sha256'::text
     ),
     'hex'
@@ -173,7 +178,7 @@ begin
       or new.no_show_reason is distinct from old.no_show_reason
       or new.completed_at is distinct from old.completed_at
       or new.created_at is distinct from old.created_at then
-      raise exception 'Booking business fields are server-managed.' using errcode = 'insufficient_privilege';
+      raise exception 'BOOKING_IMMUTABLE: Booking business fields are server-managed.' using errcode = 'insufficient_privilege';
     end if;
   end if;
   return new;

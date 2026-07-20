@@ -76,7 +76,7 @@ begin
        or new.related_entity_type is distinct from old.related_entity_type
        or new.related_entity_id is distinct from old.related_entity_id
        or new.created_at is distinct from old.created_at then
-      raise exception 'Users may only mark their own notifications as read.'
+      raise exception 'NOTIFICATION_OWNERSHIP: Users may only mark their own notifications as read.'
         using errcode = 'insufficient_privilege';
     end if;
   end if;

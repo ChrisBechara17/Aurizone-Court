@@ -1,7 +1,9 @@
 -- ============================================================================
 -- RizeON — half-court booking (basketball only)
--- Run in the Supabase SQL editor AFTER schema.sql / policies.sql /
--- conflict-guard.sql / privacy-view.sql / pricing.sql. Idempotent.
+-- Run in the Supabase SQL editor AFTER schema.sql / policies.sql / pricing.sql /
+-- conflict-guard.sql (which installs btree_gist and the base overlap
+-- constraint). privacy-view.sql runs AFTER this file so its court_occupancy
+-- definition wins. Idempotent.
 --
 -- A basketball booking can take HALF the court, leaving the other half free for
 -- someone else at the same time (e.g. 3v3 on one side, 1v1 on the other).

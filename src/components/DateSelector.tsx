@@ -1,7 +1,6 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { addDays } from 'date-fns';
 import { COLORS } from '@/constants/colors';
-import { fmtDayName, fmtDayNum, fmtMonth, isSameDay, startOfDay } from '@/utils/dateUtils';
+import { addVenueDays, fmtDayName, fmtDayNum, fmtMonth, isSameDay, venueCalendarDate, venueDateKey, venueToday } from '@/utils/dateUtils';
 
 interface Props {
   value: Date;
@@ -19,9 +18,9 @@ export function DateSelector({
   days = 14,
   startOffsetDays = 0,
 }: Props) {
-  const today = startOfDay(new Date());
-  const start = addDays(today, startOffsetDays);
-  const list = Array.from({ length: days }, (_, i) => addDays(start, i));
+  const today = venueToday();
+  const startKey = addVenueDays(venueDateKey(today), startOffsetDays);
+  const list = Array.from({ length: days }, (_, i) => venueCalendarDate(addVenueDays(startKey, i)));
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>

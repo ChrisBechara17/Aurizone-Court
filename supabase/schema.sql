@@ -76,6 +76,11 @@ create table public.bookings (
   recurrence_group_id uuid,
   is_free_reward boolean not null default false,
   ball_machine boolean not null default false,
+  -- Half-court support (basketball only). 'full' occupies the whole court, 'a'
+  -- the left half, 'b' the right. Defined here so pricing.sql's trigger and
+  -- privacy-view.sql can reference it regardless of run order; half-court.sql
+  -- adds the derived side_range and the side-aware overlap constraint.
+  court_half text not null default 'full' check (court_half in ('full', 'a', 'b')),
   no_show boolean not null default false,
   notification_id text,
   created_at timestamptz not null default now(),

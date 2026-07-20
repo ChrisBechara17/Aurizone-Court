@@ -51,7 +51,7 @@ set search_path = pg_catalog, public
 as $$
 begin
   if auth.uid() is null then
-    raise exception 'Authentication required.' using errcode = 'insufficient_privilege';
+    raise exception 'AUTH_REQUIRED: Authentication required.' using errcode = 'insufficient_privilege';
   end if;
 
   return query
@@ -75,7 +75,7 @@ set search_path = pg_catalog, public
 as $$
 begin
   if auth.uid() is null then
-    raise exception 'Authentication required.' using errcode = 'insufficient_privilege';
+    raise exception 'AUTH_REQUIRED: Authentication required.' using errcode = 'insufficient_privilege';
   end if;
 
   update public.push_tokens

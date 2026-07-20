@@ -1,21 +1,60 @@
 import {
-  addDays,
   addMinutes,
-  addWeeks,
   format,
   isBefore,
   isSameDay,
   parseISO,
   startOfDay,
 } from 'date-fns';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { OperatingHour } from '@/models';
 
-/** Combine a calendar date with an "HH:mm" time string into a Date. */
+export const VENUE_TIME_ZONE = 'Asia/Beirut';
+
+const DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/** Stable venue calendar key for a DateSelector date (which is not an instant). */
+export function venueDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+export function venueDateKeyForInstant(instant: Date | string): string {
+  return formatInTimeZone(typeof instant === 'string' ? parseISO(instant) : instant, VENUE_TIME_ZONE, 'yyyy-MM-dd');
+}
+
+export function venueCalendarDate(dateKey: string): Date {
+  const match = DATE_KEY_RE.exec(dateKey);
+  if (!match) throw new RangeError('Invalid venue date.');
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+}
+
+export function venueToday(): Date {
+  return venueCalendarDate(formatInTimeZone(new Date(), VENUE_TIME_ZONE, 'yyyy-MM-dd'));
+}
+
+export function addVenueDays(dateKey: string, amount: number): string {
+  const match = DATE_KEY_RE.exec(dateKey);
+  if (!match) throw new RangeError('Invalid venue date.');
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + amount));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Convert a Beirut wall-clock selection into its authoritative UTC instant. */
+export function venueWallTimeToInstant(dateKey: string, time: string): Date {
+  if (!DATE_KEY_RE.test(dateKey) || !TIME_RE.test(time)) throw new RangeError('Invalid venue date or time.');
+  const wall = `${dateKey}T${time}:00.000`;
+  const instant = fromZonedTime(wall, VENUE_TIME_ZONE);
+  // Spring-forward gaps are normalized by some runtimes. Reject that silent shift.
+  if (formatInTimeZone(instant, VENUE_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ss.SSS") !== wall) {
+    throw new RangeError('That local time does not exist in Beirut.');
+  }
+  return instant;
+}
+
+/** Combine a DateSelector calendar date with an "HH:mm" Beirut time. */
 export function combineDateAndTime(date: Date, time: string): Date {
-  const [h, m] = time.split(':').map(Number);
-  const d = new Date(date);
-  d.setHours(h, m ?? 0, 0, 0);
-  return d;
+  return venueWallTimeToInstant(venueDateKey(date), time);
 }
 
 /** End time = start + duration (hours). Returns a Date. */
@@ -32,21 +71,26 @@ export function formatDuration(hours: number): string {
   return `${h}h ${m}m`;
 }
 
-/** Generate N weekly occurrences (Date objects) starting from startDate. */
+/** Generate N occurrences at the same Beirut wall time on successive weeks. */
 export function generateWeeklyOccurrences(startDate: Date, repeatCount: number): Date[] {
-  return Array.from({ length: repeatCount }, (_, i) => addWeeks(startDate, i));
+  const firstDate = venueDateKeyForInstant(startDate);
+  const time = formatInTimeZone(startDate, VENUE_TIME_ZONE, 'HH:mm');
+  return Array.from({ length: repeatCount }, (_, i) => venueWallTimeToInstant(addVenueDays(firstDate, i * 7), time));
 }
 
 // ---- Formatting helpers ---------------------------------------------------
 
 export const fmtTime = (iso: string | Date) =>
-  format(typeof iso === 'string' ? parseISO(iso) : iso, 'h:mm a');
+  formatInTimeZone(typeof iso === 'string' ? parseISO(iso) : iso, VENUE_TIME_ZONE, 'h:mm a');
 
 export const fmtDate = (iso: string | Date) =>
-  format(typeof iso === 'string' ? parseISO(iso) : iso, 'EEE, MMM d');
+  formatInTimeZone(typeof iso === 'string' ? parseISO(iso) : iso, VENUE_TIME_ZONE, 'EEE, MMM d');
 
 export const fmtDateLong = (iso: string | Date) =>
-  format(typeof iso === 'string' ? parseISO(iso) : iso, 'EEEE, MMMM d, yyyy');
+  formatInTimeZone(typeof iso === 'string' ? parseISO(iso) : iso, VENUE_TIME_ZONE, 'EEEE, MMMM d, yyyy');
+
+/** Format a DateSelector calendar value, which deliberately is not an instant. */
+export const fmtCalendarDate = (date: Date) => format(date, 'EEE, MMM d');
 
 export const fmtDayNum = (d: Date) => format(d, 'd');
 export const fmtDayName = (d: Date) => format(d, 'EEE');
@@ -54,10 +98,8 @@ export const fmtMonth = (d: Date) => format(d, 'MMM');
 
 /** Build the next `count` selectable days starting today. */
 export function upcomingDays(count: number): Date[] {
-  const today = startOfDay(new Date());
-  // addDays, not addMinutes * 1440: a DST transition makes a calendar day 23 or
-  // 25 hours, so a fixed-minutes step would drift onto the wrong day.
-  return Array.from({ length: count }, (_, i) => addDays(today, i));
+  const todayKey = venueDateKey(venueToday());
+  return Array.from({ length: count }, (_, i) => venueCalendarDate(addVenueDays(todayKey, i)));
 }
 
 // Court operating hours.
@@ -76,8 +118,8 @@ export const DEFAULT_OPERATING_HOURS: OperatingHour[] = Array.from({ length: 7 }
 // Peak pricing: bookings that START at or after this hour are peak-priced.
 // A booking starting before 4 PM stays off-peak even if it runs past 4 PM —
 // the START time alone decides. The server re-checks this authoritatively in
-// the Beirut timezone (see supabase/peak-pricing.sql); on the client we read the
-// device-local hour, which matches for anyone booking at the venue.
+// the Beirut timezone (see supabase/peak-pricing.sql); the client uses that same
+// venue timezone regardless of the phone's current location.
 export const PEAK_START_HOUR = 16; // 4:00 PM
 
 /** Whether a booking starting at this time is peak-priced (start ≥ 4 PM). */
@@ -134,7 +176,8 @@ export function timeSlotsForOperatingHours(hours: OperatingHour, stepMinutes = S
 }
 
 export function operatingHoursForDate(hours: OperatingHour[], date: Date): OperatingHour {
-  return hours.find((h) => h.dayOfWeek === date.getDay()) ?? DEFAULT_OPERATING_HOURS[date.getDay()];
+  const dayOfWeek = venueCalendarDate(venueDateKey(date)).getDay();
+  return hours.find((h) => h.dayOfWeek === dayOfWeek) ?? DEFAULT_OPERATING_HOURS[dayOfWeek];
 }
 
 /** Whether a booking starting at `time` for `durationHours` finishes by close (midnight). */
@@ -147,6 +190,88 @@ export function fitsWithinOperatingHours(time: string, durationHours: number, ho
   if (hours.isClosed) return false;
   const start = timeToMinutes(time);
   return start >= timeToMinutes(hours.openTime) && start + durationHours * 60 <= timeToMinutes(hours.closeTime);
+}
+
+/**
+ * Day-of-week (0=Sun..6=Sat) and minutes-since-midnight of an instant in the
+ * venue timezone (Asia/Beirut). Operating-hours checks must use these: the
+ * server validates the day and open/close window in Asia/Beirut, so reading
+ * device-local fields would let a non-Beirut device offer slots the server
+ * rejects (or accept a Beirut-3AM slot it shouldn't).
+ */
+export function beirutWallParts(instant: Date): { dayOfWeek: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: VENUE_TIME_ZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant);
+  const field = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const days: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    dayOfWeek: days[field('weekday')] ?? instant.getDay(),
+    minutes: Number(field('hour')) * 60 + Number(field('minute')),
+  };
+}
+
+export function sameVenueDate(instant: Date | string, calendarDate: Date): boolean {
+  return venueDateKeyForInstant(instant) === venueDateKey(calendarDate);
+}
+
+export function venueMinutesForInstant(instant: Date | string): number {
+  return beirutWallParts(typeof instant === 'string' ? parseISO(instant) : instant).minutes;
+}
+
+export function venueTimeForInstant(instant: Date | string): string {
+  return formatInTimeZone(typeof instant === 'string' ? parseISO(instant) : instant, VENUE_TIME_ZONE, 'HH:mm');
+}
+
+export function venueOperatingWindow(date: Date, hours: OperatingHour): { open: Date; close: Date } | null {
+  if (hours.isClosed) return null;
+  const dateKey = venueDateKey(date);
+  const open = venueWallTimeToInstant(dateKey, hours.openTime);
+  const close = hours.closeTime === '24:00'
+    ? venueWallTimeToInstant(addVenueDays(dateKey, 1), '00:00')
+    : venueWallTimeToInstant(dateKey, hours.closeTime);
+  return { open, close };
+}
+
+export function fitsVenueOperatingWindow(
+  date: Date,
+  time: string,
+  durationHours: number,
+  hours: OperatingHour,
+): boolean {
+  const window = venueOperatingWindow(date, hours);
+  if (!window) return false;
+  try {
+    const start = combineDateAndTime(date, time);
+    const end = calculateEndTime(start, durationHours);
+    return start.getTime() >= window.open.getTime() && end.getTime() <= window.close.getTime();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Operating-hours check for a booking INSTANT, evaluated in Asia/Beirut so it
+ * agrees with the server. Returns the matched day's hours and whether the
+ * booking fits within them.
+ */
+export function fitsOperatingHoursAt(
+  allHours: OperatingHour[],
+  instant: Date,
+  durationHours: number,
+): { hours: OperatingHour; fits: boolean } {
+  const { dayOfWeek } = beirutWallParts(instant);
+  const hours = allHours.find((h) => h.dayOfWeek === dayOfWeek) ?? DEFAULT_OPERATING_HOURS[dayOfWeek];
+  const date = venueCalendarDate(venueDateKeyForInstant(instant));
+  const window = venueOperatingWindow(date, hours);
+  if (!window) return { hours, fits: false };
+  const end = calculateEndTime(instant, durationHours);
+  const fits = instant.getTime() >= window.open.getTime() && end.getTime() <= window.close.getTime();
+  return { hours, fits };
 }
 
 export const isPast = (iso: string) => isBefore(parseISO(iso), new Date());

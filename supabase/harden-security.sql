@@ -15,8 +15,14 @@
 -- performed by a normal signed-in user (auth.role() = 'authenticated' and not
 -- an admin). The Supabase SQL editor runs as a different role entirely, so the
 -- documented admin-promotion command
---   update public.users set is_admin = true where phone_or_email = '…';
+--   update public.users set is_admin = true where id = '<user-uuid>';
 -- still works unaffected. service_role (a future backend) is also unaffected.
+--
+-- SECURITY: promote by primary-key `id`, NOT by phone_or_email. phone_or_email
+-- has no unique constraint and users can PATCH their own to any value, so a
+-- `where phone_or_email = '<victim email>'` promotion would also promote an
+-- attacker who pre-set that address. Copy the target's id from the Users admin
+-- screen or the Supabase Auth dashboard.
 -- ============================================================================
 
 -- ---- 1) users: block self-promotion to admin via UPDATE -------------------
@@ -28,7 +34,7 @@ set search_path = public
 as $$
 begin
   if new.is_admin is distinct from old.is_admin and auth.role() = 'authenticated' then
-    raise exception 'is_admin cannot be changed by the user.';
+    raise exception 'USER_FIELD_IMMUTABLE: is_admin cannot be changed by the user.';
   end if;
   return new;
 end;
@@ -49,7 +55,7 @@ create trigger trg_prevent_self_admin_promotion
 -- insert so a normal user can never create their profile row already-admin.
 -- service_role / SQL editor callers (auth.role() <> 'authenticated') are
 -- unaffected, so the documented manual promotion command
---   update public.users set is_admin = true where phone_or_email = '…';
+--   update public.users set is_admin = true where id = '<user-uuid>';
 -- still works.
 create or replace function public.force_user_insert_not_admin()
 returns trigger
@@ -85,13 +91,13 @@ begin
   if auth.role() = 'authenticated' and not public.is_admin() then
     if new.status is distinct from old.status
        and not (old.status = 'confirmed' and new.status = 'cancelled') then
-      raise exception 'You can only cancel a confirmed booking.';
+      raise exception 'INVALID_STATE: You can only cancel a confirmed booking.';
     end if;
 
     -- 3-hour cancel cutoff: can't cancel within 3h of the start time.
     if old.status = 'confirmed' and new.status = 'cancelled'
        and old.start_time - now() < interval '3 hours' then
-      raise exception 'Bookings can''t be cancelled within 3 hours of the start time.';
+      raise exception 'CANCELLATION_CUTOFF: Bookings cannot be cancelled within 3 hours of the start time.';
     end if;
 
     if new.no_show is distinct from old.no_show
@@ -113,7 +119,7 @@ begin
       or new.is_recurring is distinct from old.is_recurring
       or new.recurrence_group_id is distinct from old.recurrence_group_id
     then
-      raise exception 'You can only cancel your booking, not modify it.';
+      raise exception 'BOOKING_IMMUTABLE: You can only cancel your booking, not modify it.';
     end if;
   end if;
   return new;
@@ -144,7 +150,7 @@ begin
   if auth.role() = 'authenticated' and not public.is_admin() then
     -- Defense in depth: a user may only create their own bookings.
     if new.user_id is distinct from auth.uid() then
-      raise exception 'You can only create bookings for yourself.';
+      raise exception 'OWNERSHIP_MISMATCH: You can only create bookings for yourself.';
     end if;
 
     -- 3-strike disable: block booking once the account has 3+ no-shows.
@@ -152,7 +158,7 @@ begin
     from public.bookings
     where user_id = new.user_id and no_show = true and status <> 'cancelled';
     if strike_count >= 3 then
-      raise exception 'Your account is disabled after 3 no-shows. Please contact the front desk.';
+      raise exception 'ACCOUNT_DISABLED: Your account is disabled after 3 no-shows. Please contact the front desk.';
     end if;
 
     -- (The one-active-booking limit was removed: users may hold any number of
@@ -188,7 +194,7 @@ begin
        or new.cancel_reason is distinct from old.cancel_reason
        or new.no_show_reason is distinct from old.no_show_reason
        or new.completed_at is distinct from old.completed_at then
-      raise exception 'Bookings can only be cancelled by an admin. Please call the front desk.'
+      raise exception 'BOOKING_IMMUTABLE: Bookings can only be cancelled by an admin. Please call the front desk.'
         using errcode = 'insufficient_privilege';
     end if;
   end if;

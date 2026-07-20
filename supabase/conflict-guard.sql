@@ -21,13 +21,27 @@ create extension if not exists btree_gist;
 -- Cancelled bookings are excluded by the WHERE clause, so cancelling frees the
 -- slot immediately.
 -- ---------------------------------------------------------------------------
-alter table public.bookings
-  add constraint no_main_court_overlap
-  exclude using gist (
-    court_id with =,
-    tstzrange(start_time, end_time) with &&
-  )
-  where (uses_main_court = true and status = 'confirmed');
+-- Idempotent: half-court.sql later drops and recreates this with a side
+-- dimension, and this file may be re-run, so only add the base constraint when
+-- no version of it already exists.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'no_main_court_overlap'
+      and conrelid = 'public.bookings'::regclass
+  ) then
+    alter table public.bookings
+      add constraint no_main_court_overlap
+      exclude using gist (
+        court_id with =,
+        tstzrange(start_time, end_time) with &&
+      )
+      where (uses_main_court = true and status = 'confirmed');
+  end if;
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 2) Coach-vs-coach overlap
@@ -78,7 +92,7 @@ begin
       where cb.court_id = new.court_id
         and tstzrange(cb.start_time, cb.end_time) && tstzrange(new.start_time, new.end_time)
     ) then
-      raise exception 'The court is blocked during this time.'
+      raise exception 'COURT_BLOCKED: The court is blocked during this time.'
         using errcode = 'check_violation';
     end if;
   end if;

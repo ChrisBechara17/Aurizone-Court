@@ -21,14 +21,15 @@ import { CreateResult } from '@/services/bookingService';
 import {
   calculateEndTime,
   combineDateAndTime,
-  fitsWithinOperatingHours,
+  fitsVenueOperatingWindow,
   fmtDate,
   fmtTime,
   formatDuration,
   isPeakStart,
   operatingHoursForDate,
-  startOfDay,
   timeSlotsForOperatingHours,
+  venueDateKey,
+  venueToday,
 } from '@/utils/dateUtils';
 import { courtRate } from '@/constants/prices';
 import { availableHalfSide, hasCourtConflict } from '@/utils/conflictUtils';
@@ -66,7 +67,7 @@ export default function BookScreen() {
       setSport(params.sport);
     }
   }
-  const [date, setDate] = useState<Date>(startOfDay(new Date()));
+  const [date, setDate] = useState<Date>(venueToday());
   const [time, setTime] = useState('18:00');
   const [duration, setDuration] = useState(1);
   const [useFree, setUseFree] = useState(false);
@@ -90,9 +91,7 @@ export default function BookScreen() {
   const dayHours = operatingHoursForDate(operatingHours, date);
   const daySlots = useMemo(() => {
     const slots = timeSlotsForOperatingHours(dayHours);
-    const selectedDay = startOfDay(date).getTime();
-    const today = startOfDay(new Date()).getTime();
-    if (selectedDay !== today) return slots;
+    if (venueDateKey(date) !== venueDateKey(venueToday())) return slots;
     // eslint-disable-next-line react-hooks/purity -- current time intentionally filters today's elapsed slots
     const now = Date.now();
     return slots.filter((slot) => combineDateAndTime(date, slot).getTime() > now);
@@ -119,7 +118,7 @@ export default function BookScreen() {
   // Full/tennis needs the whole court free; a half booking just needs one side.
   const unavailable = useMemo(() => {
     return daySlots.filter((slot) => {
-      if (!fitsWithinOperatingHours(slot, duration, dayHours)) return true;
+      if (!fitsVenueOperatingWindow(date, slot, duration, dayHours)) return true;
       const start = combineDateAndTime(date, slot).toISOString();
       const end = calculateEndTime(combineDateAndTime(date, slot), duration).toISOString();
       if (half) {
@@ -149,7 +148,7 @@ export default function BookScreen() {
       setError(blockReason);
       return;
     }
-    if (!fitsWithinOperatingHours(time, duration, dayHours)) {
+    if (!fitsVenueOperatingWindow(date, time, duration, dayHours)) {
       setError(dayHours.isClosed ? 'The court is closed that day.' : 'This session would run outside operating hours.');
       return;
     }
@@ -231,7 +230,7 @@ export default function BookScreen() {
           {unavailable.includes(time) ? (
             <ErrorBanner
               message={
-                !fitsWithinOperatingHours(time, duration, dayHours)
+                !fitsVenueOperatingWindow(date, time, duration, dayHours)
                   ? 'This duration would run past closing time.'
                   : half
                   ? 'Both halves of the court are booked at this time.'

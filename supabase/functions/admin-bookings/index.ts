@@ -1,11 +1,11 @@
 import { z } from 'npm:zod@4';
-import { isoDate, limit, parse, run, uuid } from '../_shared/security.ts';
+import { isoDate, limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
 
 const body = z.discriminatedUnion('action', [
   z.object({ requestId: uuid, action: z.literal('cancel'), bookingId: uuid, reason: z.string().trim().min(1).max(500) }).strict(),
   z.object({ requestId: uuid, action: z.literal('complete'), bookingId: uuid }).strict(),
   z.object({ requestId: uuid, action: z.literal('no_show'), bookingId: uuid, reason: z.string().trim().min(1).max(500) }).strict(),
-  z.object({ requestId: uuid, action: z.literal('reschedule'), bookingId: uuid, startTime: isoDate, endTime: isoDate, durationMinutes: z.number().int().min(30).max(180) }).strict(),
+  z.object({ requestId: uuid, action: z.literal('reschedule'), bookingId: uuid, startTime: isoDate, endTime: isoDate, durationMinutes: z.number().int().min(30).max(180), overrideOperatingHours: z.boolean().default(false) }).strict(),
   z.object({ requestId: uuid, action: z.literal('block_create'), courtId: uuid, startTime: isoDate, endTime: isoDate, reason: z.string().trim().min(1).max(500) }).strict(),
   z.object({ requestId: uuid, action: z.literal('block_remove'), blockId: uuid }).strict(),
   z.object({ requestId: uuid, action: z.literal('coach_create'), bookings: z.array(z.object({
@@ -44,14 +44,16 @@ Deno.serve((req) => run(req, true, async (ctx) => {
       ? { court_id: input.courtId, start_time: input.startTime, end_time: input.endTime, reason: input.reason }
       : input.action === 'block_remove'
         ? { block_id: input.blockId }
-        : { booking_id: input.bookingId, ...('reason' in input ? { reason: input.reason } : {}), ...('startTime' in input ? { start_time: input.startTime, end_time: input.endTime, duration_minutes: input.durationMinutes } : {}) };
+        : { booking_id: input.bookingId, ...('reason' in input ? { reason: input.reason } : {}), ...('startTime' in input ? { start_time: input.startTime, end_time: input.endTime, duration_minutes: input.durationMinutes, override_operating_hours: input.overrideOperatingHours } : {}) };
   const { data, error } = await ctx.admin.rpc(scheduleAction ? 'secure_admin_schedule_action' : 'secure_admin_booking_action', scheduleAction ? {
     p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_action: input.action, p_payload: payload,
   } : {
     p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_action: input.action, p_payload: payload,
   });
-  if (error) throw error;
-  await sendNotificationPush(ctx, data?.notification_id);
+  if (error) rpcError(error);
+  // Skip the push when the RPC replayed a cached receipt (idempotent retry):
+  // the DB row already existed, so re-sending would double-notify the user.
+  if (!data?.replayed) await sendNotificationPush(ctx, data?.notification_id);
   if (input.action === 'block_create') return data.block;
   if (input.action === 'block_remove') return null;
   if (input.action === 'coach_create') return data.bookings ?? [];

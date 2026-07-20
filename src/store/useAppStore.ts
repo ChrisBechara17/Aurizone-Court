@@ -33,7 +33,7 @@ import {
   scheduleBookingReminder,
   sendExpoPush,
 } from '@/services/notificationService';
-import { calculateEndTime, combineDateAndTime, DEFAULT_OPERATING_HOURS, fitsWithinOperatingHours, generateWeeklyOccurrences, isPeakStart, operatingHoursForDate } from '@/utils/dateUtils';
+import { calculateEndTime, combineDateAndTime, DEFAULT_OPERATING_HOURS, fitsOperatingHoursAt, fmtDateLong, fmtTime, generateWeeklyOccurrences, isPeakStart } from '@/utils/dateUtils';
 import { hasCoachConflict, hasCourtConflict, intervalsOverlap } from '@/utils/conflictUtils';
 import { CANCEL_CUTOFF_HOURS, canUserCancel } from '@/utils/accountStanding';
 import { courtRate, DEFAULT_PRICING, MAX_DURATION_HOURS } from '@/constants/prices';
@@ -133,7 +133,7 @@ interface AppState {
 
   // Admin
   addCourtBlock: (input: { date: Date; startTime: string; durationHours: number; reason: string }) => Promise<ActionResult>;
-  removeCourtBlock: (id: string) => Promise<void>;
+  removeCourtBlock: (id: string) => Promise<ActionResult>;
   updatePricing: (input: Pricing) => Promise<ActionResult>;
   updateOperatingHours: (input: OperatingHour[]) => Promise<ActionResult>;
   updateLoyaltySettings: (input: LoyaltySettings) => Promise<ActionResult>;
@@ -150,11 +150,11 @@ interface AppState {
     id: string,
     input: { name: string; supportedSports: SportType[]; bio: string; pricePerHour: number; phone: string },
   ) => Promise<ActionResult>;
-  removeCoach: (id: string) => Promise<void>;
+  removeCoach: (id: string) => Promise<ActionResult>;
 
   addRule: (input: { title: string; content: string }) => Promise<ActionResult>;
   updateRule: (id: string, input: { title: string; content: string }) => Promise<ActionResult>;
-  removeRule: (id: string) => Promise<void>;
+  removeRule: (id: string) => Promise<ActionResult>;
   reorderRule: (id: string, dir: 'up' | 'down') => Promise<void>;
 }
 
@@ -245,39 +245,11 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   };
 
-  const addLoyaltyTx = async (
-    userId: string,
-    bookingId: string | null,
-    type: string,
-    points: number,
-    description: string,
-    adminId: string | null = null,
-  ) => {
-    if (secureWritesEnabled) return;
-    try {
-      const tx = await supabaseService.insertLoyaltyTransaction({
-        userId,
-        bookingId,
-        type,
-        points,
-        description,
-        createdByAdminId: adminId,
-      });
-      if (userId === get().user?.id || get().user?.isAdmin) {
-        set({ loyaltyTransactions: [tx, ...get().loyaltyTransactions] });
-      }
-    } catch {
-      // Unique constraints intentionally make repeated lifecycle taps harmless.
-    }
-  };
-
-  const reverseBookingLoyalty = async (booking: Booking, reason: string) => {
-    if (secureWritesEnabled) return;
-    const existing = get().loyaltyTransactions.filter((tx) => tx.bookingId === booking.id);
-    const total = existing.reduce((sum, tx) => sum + tx.points, 0);
-    if (total !== 0) {
-      await addLoyaltyTx(booking.userId, booking.id, reason, -total, reason === 'booking_cancelled' ? 'Booking cancelled' : 'Booking no-show adjustment', get().user?.id ?? null);
-    }
+  /** Append rows, replacing any existing entry with the same id, so an optimistic
+   *  append can't duplicate rows a concurrent realtime refresh already merged. */
+  const mergeById = <T extends { id: string }>(existing: T[], incoming: T[]): T[] => {
+    const incomingIds = new Set(incoming.map((r) => r.id));
+    return [...existing.filter((r) => !incomingIds.has(r.id)), ...incoming];
   };
 
   return {
@@ -516,8 +488,9 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, created: [], blocked: [], error: 'Court is still loading — please try again in a moment.' };
       }
 
-      const hours = operatingHoursForDate(get().operatingHours, input.date);
-      if (!fitsWithinOperatingHours(input.startTime, input.durationHours, hours)) {
+      const startInstant = combineDateAndTime(input.date, input.startTime);
+      const { hours, fits } = fitsOperatingHoursAt(get().operatingHours, startInstant, input.durationHours);
+      if (!fits) {
         return {
           ok: false,
           created: [],
@@ -561,20 +534,18 @@ export const useAppStore = create<AppState>((set, get) => {
             return { ok: false, created: [], blocked: retry.blocked, error: e2?.message ?? 'Could not save booking.' };
           }
         } else {
+          // Any other overlap rejection (e.g. a full-court slot someone else just
+          // took) means our occupancy snapshot is stale — refresh so the grid
+          // stops showing the taken slot as free.
+          if (e?.code === '23P01') void get().refresh();
           return { ok: false, created: [], blocked: result.blocked, error: e?.message ?? 'Could not save booking.' };
         }
       }
 
       const withIds = await attachReminders(saved);
-      let goodCount = get().bookings.filter((b) => b.userId === user.id && b.status !== 'cancelled' && !b.noShow).length;
-      for (const b of withIds) {
-        const points = goodCount === 0 ? get().loyaltySettings.firstBookingBonus : get().loyaltySettings.pointsPerBooking;
-        await addLoyaltyTx(user.id, b.id, 'booking_base', points, goodCount === 0 ? 'First booking bonus' : 'Booking points');
-        goodCount += 1;
-      }
       set({
-        bookings: [...get().bookings, ...withIds],
-        occupancy: [...get().occupancy, ...withIds],
+        bookings: mergeById(get().bookings, withIds),
+        occupancy: mergeById(get().occupancy, withIds),
       });
       return { ...result, created: withIds };
     },
@@ -609,7 +580,6 @@ export const useAppStore = create<AppState>((set, get) => {
       const now = Date.now();
 
       for (const start of occurrences) {
-        const hours = operatingHoursForDate(get().operatingHours, start);
         const end = calculateEndTime(start, input.durationHours);
         const startISO = start.toISOString();
         const endISO = end.toISOString();
@@ -618,7 +588,7 @@ export const useAppStore = create<AppState>((set, get) => {
           skippedCount += 1;
           continue;
         }
-        if (!fitsWithinOperatingHours(input.startTime, input.durationHours, hours)) {
+        if (!fitsOperatingHoursAt(get().operatingHours, start, input.durationHours).fits) {
           skippedCount += 1;
           continue;
         }
@@ -677,17 +647,11 @@ export const useAppStore = create<AppState>((set, get) => {
       }
       // Schedule reminders + persist their notification ids, same as bookCourt.
       const stored = await attachReminders(saved.length > 0 ? saved : created);
-      let goodCount = get().bookings.filter((b) => b.userId === input.userId && b.status !== 'cancelled' && !b.noShow).length;
-      for (const b of stored) {
-        const points = goodCount === 0 ? get().loyaltySettings.firstBookingBonus : get().loyaltySettings.pointsPerBooking;
-        await addLoyaltyTx(input.userId, b.id, 'booking_base', points, goodCount === 0 ? 'First booking bonus' : 'Booking points', user.id);
-        goodCount += 1;
-      }
       set({
-        bookings: [...get().bookings, ...stored],
+        bookings: mergeById(get().bookings, stored),
         // A court-using coach session occupies the Main Court, so add it to the
         // occupancy the conflict checks read.
-        occupancy: input.usesMainCourt ? [...get().occupancy, ...stored] : get().occupancy,
+        occupancy: input.usesMainCourt ? mergeById(get().occupancy, stored) : get().occupancy,
       });
       await audit('booking.coach.create', 'booking', stored[0]?.id ?? null, `Booked ${stored.length} coaching session${stored.length === 1 ? '' : 's'} with ${coach.name}.`, {
         coachId: coach.id,
@@ -730,7 +694,6 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not cancel booking.' };
       }
-      await reverseBookingLoyalty(target, 'booking_cancelled');
       if (!secureWritesEnabled) void cancelReminder(target.notificationId);
       set({
         bookings: get().bookings.map((b) =>
@@ -762,7 +725,6 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark booking completed.' };
       }
-      await addLoyaltyTx(target.userId, id, 'completion_bonus', get().loyaltySettings.completionBonus, 'Completed booking bonus', get().user?.id ?? null);
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'completed', completedAt, noShow: false, noShowReason: null } : b,
@@ -785,8 +747,6 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark no-show.' };
       }
-      await reverseBookingLoyalty(target, 'no_show_adjustment');
-      await addLoyaltyTx(target.userId, id, 'no_show_penalty', -get().loyaltySettings.noShowPenalty, 'No-show penalty', get().user?.id ?? null);
       set({
         bookings: get().bookings.map((b) => (b.id === id ? { ...b, noShow: true, noShowReason: cleanReason } : b)),
       });
@@ -830,22 +790,25 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, error: 'That coach already has a session at this time.' };
       }
       if (!input.overrideOperatingHours) {
-        const hours = operatingHoursForDate(get().operatingHours, start);
-        if (!fitsWithinOperatingHours(input.startTime, input.durationHours, hours)) {
+        if (!fitsOperatingHoursAt(get().operatingHours, start, input.durationHours).fits) {
           return { ok: false, error: 'That time is outside operating hours. Use override if this is intentional.' };
         }
       }
 
       const durationMinutes = Math.round(input.durationHours * 60);
       const peak = isPeakStart(start);
+      // Round to cents, not whole units: the server stores numeric(10,2), so a
+      // whole-unit optimistic total (e.g. 65 vs 64.50) would flip on the next
+      // refresh — and the direct-write coach path would persist the wrong value.
+      const round2 = (n: number) => Math.round(n * 100) / 100;
       let totalPrice = target.totalPrice;
       if (target.bookingType === 'coach') {
         const coach = get().coaches.find((c) => c.id === target.coachId);
-        totalPrice = Math.round((coach?.pricePerHour ?? 0) * input.durationHours);
+        totalPrice = round2((coach?.pricePerHour ?? 0) * input.durationHours);
       } else if (target.isFreeReward) {
-        totalPrice = target.ballMachine ? Math.round(get().pricing.ballMachineRate * input.durationHours) : 0;
+        totalPrice = target.ballMachine ? round2(get().pricing.ballMachineRate * input.durationHours) : 0;
       } else {
-        totalPrice = Math.round(
+        totalPrice = round2(
           (courtRate(get().pricing, target.sportType, (target.courtHalf ?? 'full') !== 'full', peak) +
             (target.ballMachine ? get().pricing.ballMachineRate : 0)) * input.durationHours,
         );
@@ -855,7 +818,13 @@ export const useAppStore = create<AppState>((set, get) => {
       // write succeeds, so a failed write can never cancel the old reminder or
       // leave a new reminder scheduled at a time that was never saved.
       try {
-        await supabaseService.updateBooking(id, { startTime, endTime, durationMinutes, totalPrice });
+        await supabaseService.updateBooking(id, {
+          startTime,
+          endTime,
+          durationMinutes,
+          totalPrice,
+          overrideOperatingHours: !!input.overrideOperatingHours,
+        });
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not reschedule booking.' };
       }
@@ -895,7 +864,7 @@ export const useAppStore = create<AppState>((set, get) => {
       await notifyUser(
         target.userId,
         'Booking rescheduled',
-        `Your booking was moved to ${start.toLocaleDateString()} at ${input.startTime}.`,
+        `Your booking was moved to ${fmtDateLong(start)} at ${fmtTime(start)}.`,
         'booking_rescheduled',
         'booking',
         id,
@@ -1097,11 +1066,12 @@ export const useAppStore = create<AppState>((set, get) => {
     removeCourtBlock: async (id) => {
       try {
         await supabaseService.deleteCourtBlock(id);
-      } catch {
-        return;
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Could not remove this block.' };
       }
       set({ courtBlocks: get().courtBlocks.filter((b) => b.id !== id) });
       await audit('court_block.remove', 'court_block', id, 'Removed court block.');
+      return { ok: true };
     },
 
     addCoach: async (input) => {
@@ -1158,11 +1128,12 @@ export const useAppStore = create<AppState>((set, get) => {
     removeCoach: async (id) => {
       try {
         await supabaseService.deleteCoach(id);
-      } catch {
-        return;
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Could not remove this coach.' };
       }
       set({ coaches: get().coaches.filter((c) => c.id !== id) });
       await audit('coach.remove', 'coach', id, 'Removed coach.');
+      return { ok: true };
     },
 
     // Court rules -------------------------------------------------------------
@@ -1198,11 +1169,12 @@ export const useAppStore = create<AppState>((set, get) => {
     removeRule: async (id) => {
       try {
         await supabaseService.deleteCourtRule(id);
-      } catch {
-        return;
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Could not remove this rule.' };
       }
       set({ courtRules: get().courtRules.filter((r) => r.id !== id) });
       await audit('rule.remove', 'court_rule', id, 'Removed rule.');
+      return { ok: true };
     },
 
     reorderRule: async (id, dir) => {

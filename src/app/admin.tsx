@@ -1,5 +1,5 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleProp, Text, TextInput, TextStyle, View } from 'react-native';
+import { ReactNode, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleProp, Text, TextInput, TextStyle, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Activity, ArrowLeft, ArrowDown, ArrowUp, Ban, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock, Download, DollarSign, GraduationCap, LayoutGrid, Megaphone, Pencil, Phone, Plus, RefreshCw, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react-native';
@@ -23,13 +23,18 @@ import { useAppStore } from '@/store/useAppStore';
 import {
   calculateEndTime,
   combineDateAndTime,
-  fitsWithinOperatingHours,
+  fitsVenueOperatingWindow,
+  fmtCalendarDate,
   fmtDate,
   fmtTime,
   isSameDay,
   operatingHoursForDate,
+  sameVenueDate,
   startOfDay,
   timeSlotsForOperatingHours,
+  venueToday,
+  venueCalendarDate,
+  venueDateKeyForInstant,
 } from '@/utils/dateUtils';
 import { hasCourtConflict } from '@/utils/conflictUtils';
 import { parseISO } from 'date-fns';
@@ -37,7 +42,7 @@ import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty'
 import { computeStanding } from '@/utils/accountStanding';
 import { shareCsv } from '@/utils/csvExport';
 import { bookingsFor } from '@/utils/adminUsers';
-import { authService } from '@/services/authService';
+import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
 import { secureWritesEnabled } from '@/services/secureFunctionService';
 import * as Sentry from '@sentry/react-native';
 
@@ -137,23 +142,15 @@ export default function AdminScreen() {
   const securityEvents = useAppStore((s) => s.securityEvents);
   const pushStatus = useAppStore((s) => s.pushStatus);
 
-  const [date, setDate] = useState<Date>(startOfDay(new Date()));
+  const [date, setDate] = useState<Date>(venueToday());
   const [time, setTime] = useState('12:00');
   const [duration, setDuration] = useState(1);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [mfaReady, setMfaReady] = useState(false);
-
-  useEffect(() => {
-    if (!user?.isAdmin) return;
-    authService.getMfaStatus()
-      .then((status) => {
-        if (status.currentLevel === 'aal2') setMfaReady(true);
-        else router.replace('/admin-mfa');
-      })
-      .catch(() => router.replace('/admin-mfa'));
-  }, [router, user?.isAdmin]);
+  const [blocking, setBlocking] = useState(false);
+  const [bookingCoach, setBookingCoach] = useState(false);
+  const mfaReady = useRequireAdminMfa();
 
   // Coaching-session booking (admin books a coach into the selected slot).
   const [showCoach, setShowCoach] = useState(false);
@@ -164,7 +161,7 @@ export default function AdminScreen() {
 
   // Which console section is showing (bottom-tab navigation).
   const [tab, setTab] = useState<AdminTab>('overview');
-  const [scheduleWeek, setScheduleWeek] = useState<Date>(startOfDay(new Date()));
+  const [scheduleWeek, setScheduleWeek] = useState<Date>(venueToday());
   const [scheduleFilters, setScheduleFilters] = useState({
     basketball: true,
     tennis: true,
@@ -184,7 +181,7 @@ export default function AdminScreen() {
   const [exportErr, setExportErr] = useState<string | null>(null);
 
   // Bookings day filter
-  const [bookingsDay, setBookingsDay] = useState<Date>(startOfDay(new Date()));
+  const [bookingsDay, setBookingsDay] = useState<Date>(venueToday());
 
   // Coach form (add / edit)
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -396,7 +393,7 @@ export default function AdminScreen() {
     () => {
       const hours = operatingHoursForDate(operatingHours, date);
       return timeSlotsForOperatingHours(hours).filter((slot) => {
-        if (!fitsWithinOperatingHours(slot, duration, hours)) return true;
+        if (!fitsVenueOperatingWindow(date, slot, duration, hours)) return true;
         const start = combineDateAndTime(date, slot);
         const end = calculateEndTime(start, duration);
         return hasCourtConflict(
@@ -419,7 +416,7 @@ export default function AdminScreen() {
   const dayBookings = useMemo(
     () =>
       bookings
-        .filter((b) => isSameDay(parseISO(b.startTime), bookingsDay))
+        .filter((b) => sameVenueDate(b.startTime, bookingsDay))
         .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime()),
     [bookings, bookingsDay],
   );
@@ -581,13 +578,15 @@ export default function AdminScreen() {
   };
 
   const onBlock = async () => {
+    if (blocking) return; // guard against a double-tap creating two identical blocks
     setError(null);
     setOkMsg(null);
-    if (!fitsWithinOperatingHours(time, duration, adminDayHours)) {
+    if (!fitsVenueOperatingWindow(date, time, duration, adminDayHours)) {
       setError(adminDayHours.isClosed ? 'The court is closed that day.' : 'That block is outside operating hours.');
       return;
     }
-    const res = await addCourtBlock({ date, startTime: time, durationHours: duration, reason });
+    setBlocking(true);
+    const res = await addCourtBlock({ date, startTime: time, durationHours: duration, reason }).finally(() => setBlocking(false));
     if (!res.ok) {
       setError(res.error ?? 'Could not block this time.');
       return;
@@ -597,13 +596,15 @@ export default function AdminScreen() {
   };
 
   const onBookCoach = async () => {
+    if (bookingCoach) return; // guard against a double-tap creating duplicate sessions
     setCbErr(null);
     setCbOk(null);
-    if (!fitsWithinOperatingHours(time, duration, adminDayHours)) {
+    if (!fitsVenueOperatingWindow(date, time, duration, adminDayHours)) {
       setCbErr(adminDayHours.isClosed ? 'The court is closed that day.' : 'That session is outside operating hours.');
       return;
     }
     if (!cbCoachId) return setCbErr('Select a coach.');
+    setBookingCoach(true);
     const res = await bookCoachSession({
       coachId: cbCoachId,
       userId: user.id,
@@ -612,7 +613,7 @@ export default function AdminScreen() {
       durationHours: duration,
       usesMainCourt: true,
       repeatCount: cbRepeatWeeks,
-    });
+    }).finally(() => setBookingCoach(false));
     if (!res.ok) return setCbErr(res.error ?? 'Could not create the coaching booking.');
     const coach = coaches.find((c) => c.id === cbCoachId);
     const booked = res.createdCount ?? cbRepeatWeeks;
@@ -623,6 +624,51 @@ export default function AdminScreen() {
       }`,
     );
     setCbCoachId(null);
+  };
+
+  // Destructive removals: confirm first (single tap used to delete permanently),
+  // then surface any failure instead of silently leaving the row on screen.
+  const confirmRemoveBlock = (id: string) => {
+    Alert.alert('Remove block', 'Remove this court block? Players will be able to book this slot again.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await removeCourtBlock(id);
+          if (!res.ok) Alert.alert('Could not remove block', res.error ?? 'Please try again.');
+        },
+      },
+    ]);
+  };
+
+  const confirmRemoveCoach = (id: string) => {
+    const coach = coaches.find((c) => c.id === id);
+    Alert.alert('Remove coach', `Remove ${coach?.name ?? 'this coach'}? This can't be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await removeCoach(id);
+          if (!res.ok) Alert.alert('Could not remove coach', res.error ?? 'Please try again.');
+        },
+      },
+    ]);
+  };
+
+  const confirmRemoveRule = (id: string) => {
+    Alert.alert('Remove rule', 'Remove this rule? This can\'t be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await removeRule(id);
+          if (!res.ok) Alert.alert('Could not remove rule', res.error ?? 'Please try again.');
+        },
+      },
+    ]);
   };
 
   return (
@@ -1127,6 +1173,7 @@ export default function AdminScreen() {
                 icon={<GraduationCap size={18} color="#05060f" />}
                 colors={[COLORS.coach, '#9d90ff']}
                 onPress={onBookCoach}
+                loading={bookingCoach}
               />
             </View>
           ) : null}
@@ -1140,6 +1187,7 @@ export default function AdminScreen() {
             icon={<Ban size={18} color="#05060f" />}
             colors={[ADMIN, '#ffb020']}
             onPress={onBlock}
+            loading={blocking}
           />
         </Animated.View>
 
@@ -1157,7 +1205,7 @@ export default function AdminScreen() {
                       </Text>
                     </View>
                     <Pressable
-                      onPress={() => removeCourtBlock(blk.id)}
+                      onPress={() => confirmRemoveBlock(blk.id)}
                       style={({ pressed }) => ({
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -1192,15 +1240,15 @@ export default function AdminScreen() {
               <SmallButton label="Prev" onPress={() => setScheduleWeek(addDays(scheduleWeek, -7))} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={{ color: COLORS.text, fontWeight: '900', fontSize: 15 }}>
-                  {fmtDate(startOfWeek(scheduleWeek))}
+                  {fmtCalendarDate(startOfWeek(scheduleWeek))}
                 </Text>
                 <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                  to {fmtDate(addDays(startOfWeek(scheduleWeek), 6))}
+                  to {fmtCalendarDate(addDays(startOfWeek(scheduleWeek), 6))}
                 </Text>
               </View>
               <SmallButton label="Next" onPress={() => setScheduleWeek(addDays(scheduleWeek, 7))} />
             </View>
-            <Pressable onPress={() => setScheduleWeek(startOfDay(new Date()))} style={{ alignSelf: 'center', marginTop: 10 }}>
+            <Pressable onPress={() => setScheduleWeek(venueToday())} style={{ alignSelf: 'center', marginTop: 10 }}>
               <Text style={{ color: ADMIN, fontWeight: '800', fontSize: 13 }}>Jump to this week</Text>
             </Pressable>
           </GlassCard>
@@ -1225,10 +1273,10 @@ export default function AdminScreen() {
           {buildWeekDays(scheduleWeek).map((day) => {
             const items = scheduleItemsForDay(day, bookings, courtBlocks, scheduleFilters);
             return (
-              <GlassCard key={day.toISOString()} accent={isSameDay(day, new Date()) ? ADMIN : undefined}>
+              <GlassCard key={day.toISOString()} accent={isSameDay(day, venueToday()) ? ADMIN : undefined}>
                 <View style={{ gap: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: COLORS.text, fontWeight: '900', fontSize: 16 }}>{fmtDate(day)}</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: '900', fontSize: 16 }}>{fmtCalendarDate(day)}</Text>
                     <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>{items.length} item{items.length === 1 ? '' : 's'}</Text>
                   </View>
                   {items.length === 0 ? (
@@ -1357,7 +1405,7 @@ export default function AdminScreen() {
             <EmptyState title="No coaches" subtitle="Add a coach above to list them for users." />
           ) : (
             coaches.map((c) => (
-              <CoachCard key={c.id} coach={c} onEdit={startEditCoach} onRemove={removeCoach} />
+              <CoachCard key={c.id} coach={c} onEdit={startEditCoach} onRemove={confirmRemoveCoach} />
             ))
           )}
         </View>
@@ -1451,7 +1499,7 @@ export default function AdminScreen() {
                   <RuleIconBtn onPress={() => startEditRule(rule.id)}>
                     <Pencil size={15} color={COLORS.neon} />
                   </RuleIconBtn>
-                  <RuleIconBtn danger onPress={() => removeRule(rule.id)}>
+                  <RuleIconBtn danger onPress={() => confirmRemoveRule(rule.id)}>
                     <Trash2 size={15} color={COLORS.danger} />
                   </RuleIconBtn>
                 </View>
@@ -1508,7 +1556,7 @@ export default function AdminScreen() {
             ))}
           </View>
           <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '600' }}>
-            {fmtDate(bookingsDay)} · {dayBookings.length} booking{dayBookings.length === 1 ? '' : 's'}
+            {fmtCalendarDate(bookingsDay)} · {dayBookings.length} booking{dayBookings.length === 1 ? '' : 's'}
           </Text>
           {filteredDayBookings.length === 0 ? (
             <EmptyState title="No bookings this day" subtitle="Pick another day above." />
@@ -1788,17 +1836,18 @@ function isValidOperatingTime(time: string, allowEndOfDay: boolean): boolean {
 }
 
 function isInRevenueRange(date: Date, range: RevenueRange): boolean {
-  const now = new Date();
+  const now = venueToday();
+  const venueDate = venueCalendarDate(venueDateKeyForInstant(date));
   if (range === 'all') return true;
-  if (range === 'today') return isSameDay(date, now);
+  if (range === 'today') return isSameDay(venueDate, now);
   if (range === 'week') {
     const start = startOfWeekLocal(now);
     const end = addDays(start, 7);
-    return date >= start && date < end;
+    return venueDate >= start && venueDate < end;
   }
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return date >= monthStart && date < nextMonth;
+  return venueDate >= monthStart && venueDate < nextMonth;
 }
 
 function startOfWeekLocal(date: Date): Date {
@@ -1832,7 +1881,7 @@ function scheduleItemsForDay(
   filters: { basketball: boolean; tennis: boolean; coach: boolean; blocks: boolean },
 ) {
   const bookingItems = bookings
-    .filter((b) => isSameDay(parseISO(b.startTime), day))
+    .filter((b) => sameVenueDate(b.startTime, day))
     .filter((b) => {
       if (b.bookingType === 'coach') return filters.coach;
       return b.sportType === 'basketball' ? filters.basketball : filters.tennis;
@@ -1853,7 +1902,7 @@ function scheduleItemsForDay(
 
   const blockItems = filters.blocks
     ? blocks
-        .filter((b) => isSameDay(parseISO(b.startTime), day))
+        .filter((b) => sameVenueDate(b.startTime, day))
         .map((b) => ({
           id: b.id,
           kind: 'block' as const,

@@ -44,7 +44,7 @@ begin
   -- does not.
   if new.status = 'confirmed' and new.start_time <= now()
      and (tg_op = 'INSERT' or new.start_time is distinct from old.start_time) then
-    raise exception 'Bookings must start in the future.'
+    raise exception 'PAST_START: Bookings must start in the future.'
       using errcode = 'check_violation';
   end if;
 

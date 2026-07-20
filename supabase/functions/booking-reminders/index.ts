@@ -50,7 +50,10 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await admin.rpc('claim_due_booking_reminders', { p_limit: 100 });
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error('Failed to claim booking reminders', error);
+    return Response.json({ error: 'The reminder job could not be completed.' }, { status: 500 });
+  }
 
   const reminders = (data ?? []) as Reminder[];
   const userIds = [...new Set(reminders.map((item) => item.user_id))];
@@ -62,7 +65,10 @@ Deno.serve(async (req) => {
       .in('user_id', userIds)
       .eq('is_active', true)
       .eq('booking_reminders_enabled', true);
-    if (result.error) return Response.json({ error: result.error.message }, { status: 500 });
+    if (result.error) {
+      console.error('Failed to load reminder push tokens', result.error);
+      return Response.json({ error: 'The reminder job could not be completed.' }, { status: 500 });
+    }
     tokens = (result.data ?? []) as PushToken[];
   }
 

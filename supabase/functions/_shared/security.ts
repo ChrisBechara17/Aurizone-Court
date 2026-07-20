@@ -106,6 +106,57 @@ export async function parse<T>(req: Request, schema: z.ZodType<T>): Promise<T> {
   return result.data;
 }
 
+// Stable application error codes raised by secure RPCs. Public text comes only
+// from this allowlist; SQL text and unexpected database errors stay server-side.
+const PUBLIC_RPC_ERRORS: Record<string, { status: number; message: string }> = {
+  ACCOUNT_DISABLED: { status: 403, message: 'This account is disabled.' },
+  ADMIN_REQUIRED: { status: 403, message: 'Admin access is required.' },
+  AUTH_REQUIRED: { status: 401, message: 'Authentication is required.' },
+  BOOKING_CONFLICT: { status: 409, message: 'That time was just booked. Please choose another available slot.' },
+  BOOKING_IMMUTABLE: { status: 403, message: 'Booking details can only be changed through supported booking actions.' },
+  CANCELLATION_CUTOFF: { status: 409, message: 'Bookings cannot be cancelled within 3 hours of the start time.' },
+  COURT_BLOCKED: { status: 409, message: 'The court is blocked during this time.' },
+  COURT_CLOSED: { status: 400, message: 'The court is closed on the selected day.' },
+  INVALID_ACTION: { status: 400, message: 'That action is not supported.' },
+  INVALID_COURT_HALF: { status: 400, message: 'The selected court half is invalid.' },
+  INVALID_DURATION: { status: 400, message: 'Duration must be between 30 minutes and 3 hours and match the selected times.' },
+  INVALID_PAYLOAD: { status: 400, message: 'The request was invalid.' },
+  INVALID_REFERENCE: { status: 400, message: 'The request referenced something that no longer exists.' },
+  INVALID_STATE: { status: 409, message: 'This item changed and the action can no longer be applied.' },
+  NOT_FOUND: { status: 404, message: 'The requested item was not found.' },
+  NOTIFICATION_OWNERSHIP: { status: 403, message: 'You cannot modify another user\'s notification.' },
+  OUTSIDE_OPERATING_HOURS: { status: 400, message: 'That time is outside operating hours.' },
+  OWNERSHIP_MISMATCH: { status: 403, message: 'You cannot modify another user\'s booking.' },
+  PAST_START: { status: 400, message: 'Bookings must start in the future.' },
+  PROFILE_REQUIRED: { status: 403, message: 'A user profile is required.' },
+  REWARD_BATCH_INVALID: { status: 400, message: 'Free rewards cannot be combined with recurring bookings.' },
+  REWARD_UNAVAILABLE: { status: 409, message: 'A free reward is not currently available.' },
+  SERVICE_ROLE_REQUIRED: { status: 403, message: 'This operation is restricted to the trusted server.' },
+  USER_FIELD_IMMUTABLE: { status: 403, message: 'Protected account fields cannot be changed directly.' },
+};
+
+// Translate a Supabase/Postgres RPC error into a safe client-facing throw.
+// Never forwards raw Postgres text (constraint names, columns, internal RAISE)
+// for unexpected faults, and never mislabels a 500 as a 409.
+export function rpcError(error: { message?: string; code?: string } | null): never {
+  const sqlstate = error?.code ?? '';
+  if (sqlstate === '23P01') {
+    throw Object.assign(new Error('That time was just booked. Please choose another available slot.'), { status: 409, code: 'BOOKING_CONFLICT' });
+  }
+  if (sqlstate === '23505') {
+    throw Object.assign(new Error('This action was already applied.'), { status: 409, code: 'DUPLICATE' });
+  }
+  const raw = error?.message ?? '';
+  const tag = /^([A-Z][A-Z0-9_]+):(?:\s|$)/.exec(raw)?.[1];
+  const publicError = tag ? PUBLIC_RPC_ERRORS[tag] : undefined;
+  if (tag && publicError) {
+    // SQL supplies a stable code; public wording is owned by this allowlist.
+    throw Object.assign(new Error(publicError.message), { status: publicError.status, code: tag });
+  }
+  console.error('Suppressed unmapped RPC error', { code: sqlstate, message: raw });
+  throw Object.assign(new Error('Something went wrong. Please try again.'), { status: 500, code: 'SERVER_ERROR' });
+}
+
 export async function run(req: Request, requireAdmin: boolean, handler: (ctx: RequestContext) => Promise<unknown>) {
   const early = preflight(req);
   if (early) return early;

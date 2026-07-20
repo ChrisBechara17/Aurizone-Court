@@ -1,4 +1,4 @@
-﻿Priority,Items,Plan
+Priority,Items,Plan
 R1,R1,Mirror server behavior: reject past start only when start_time changes into the past; allow duration-only edits of in-progress bookings.
 User-facing cluster,"U1, U2, U3","Fix bookings filter/cancel CTA, clear cross-account in-memory data on logout/delete, and show delete-account errors inside the modal."
 Cheap hardening,"S3, S4, U4, U5, U6","Neutralize CSV formulas, revoke migration function execute, remove placeholder-user fallback, guard read notifications, and add navigation fallbacks."

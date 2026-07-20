@@ -50,10 +50,10 @@ as $$
 #variable_conflict use_column
 begin
   if auth.role() <> 'service_role' then
-    raise exception 'Service role required.' using errcode = 'insufficient_privilege';
+    raise exception 'SERVICE_ROLE_REQUIRED: Service role required.' using errcode = 'insufficient_privilege';
   end if;
   if p_limit < 1 or p_limit > 500 then
-    raise exception 'Invalid reminder claim limit.' using errcode = '22023';
+    raise exception 'INVALID_PAYLOAD: Invalid reminder claim limit.' using errcode = '22023';
   end if;
 
   -- A five-minute cron run first sees a booking between 55 and 60 minutes
@@ -118,10 +118,10 @@ set search_path = pg_catalog, public
 as $$
 begin
   if auth.role() <> 'service_role' then
-    raise exception 'Service role required.' using errcode = 'insufficient_privilege';
+    raise exception 'SERVICE_ROLE_REQUIRED: Service role required.' using errcode = 'insufficient_privilege';
   end if;
   if p_status not in ('sent', 'no_tokens', 'failed') then
-    raise exception 'Invalid reminder result.' using errcode = '22023';
+    raise exception 'INVALID_PAYLOAD: Invalid reminder result.' using errcode = '22023';
   end if;
 
   update public.booking_reminder_deliveries

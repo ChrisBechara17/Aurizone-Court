@@ -1,5 +1,5 @@
 import { z } from 'npm:zod@4';
-import { limit, parse, run, uuid } from '../_shared/security.ts';
+import { limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
 
 const sport = z.enum(['basketball', 'tennis']);
 const openingTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm.');
@@ -28,8 +28,8 @@ Deno.serve((req) => run(req, true, async (ctx) => {
   if (input.action === 'pricing') Object.assign(payload, { basketball: input.basketball, basketball_peak: input.basketballPeak, basketball_half: input.basketballHalf, basketball_half_peak: input.basketballHalfPeak, tennis: input.tennis, tennis_peak: input.tennisPeak, ball_machine_rate: input.ballMachineRate });
   if (input.action === 'config_values') payload.values = input.values;
   const { data: result, error } = await ctx.admin.rpc('secure_admin_management_action', { p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_action: input.action, p_payload: payload });
-  if (error) throw error;
-  if (input.action === 'coach_create' && result?.id) { const q = await ctx.admin.from('coaches').select('*').eq('id', result.id).single(); if (q.error) throw q.error; return q.data; }
-  if (input.action === 'rule_create' && result?.id) { const q = await ctx.admin.from('court_rules').select('*').eq('id', result.id).single(); if (q.error) throw q.error; return q.data; }
+  if (error) rpcError(error);
+  if (input.action === 'coach_create' && result?.id) { const q = await ctx.admin.from('coaches').select('*').eq('id', result.id).single(); if (q.error) rpcError(q.error); return q.data; }
+  if (input.action === 'rule_create' && result?.id) { const q = await ctx.admin.from('court_rules').select('*').eq('id', result.id).single(); if (q.error) rpcError(q.error); return q.data; }
   return result;
 }));

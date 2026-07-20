@@ -31,48 +31,79 @@ create policy "admin write operating_hours" on public.operating_hours
 -- ---- Booking guard: normal users must stay inside operating hours ----------
 -- Admins/service-role callers can override for special events. The app also
 -- checks this client-side, but this trigger is the authoritative server guard.
+create or replace function public.assert_booking_time_contract(
+  p_start_time timestamptz,
+  p_end_time timestamptz,
+  p_duration_minutes integer,
+  p_enforce_operating_hours boolean default true
+)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_local_date date;
+  v_hours public.operating_hours%rowtype;
+  v_open_at timestamptz;
+  v_close_at timestamptz;
+begin
+  if p_start_time is null or p_end_time is null or p_duration_minutes is null
+     or p_duration_minutes < 30 or p_duration_minutes > 180
+     or date_trunc('minute', p_start_time) <> p_start_time
+     or date_trunc('minute', p_end_time) <> p_end_time
+     or p_end_time <= p_start_time
+     or extract(epoch from (p_end_time - p_start_time)) <> p_duration_minutes * 60 then
+    raise exception 'INVALID_DURATION: Booking times must be whole minutes and match a 30 to 180 minute duration.'
+      using errcode = 'check_violation';
+  end if;
+
+  if not p_enforce_operating_hours then
+    return;
+  end if;
+
+  v_local_date := (p_start_time at time zone 'Asia/Beirut')::date;
+  select * into v_hours
+  from public.operating_hours
+  where day_of_week = extract(dow from v_local_date)::integer;
+
+  if not found or v_hours.is_closed then
+    raise exception 'COURT_CLOSED: The court is closed on this day.'
+      using errcode = 'check_violation';
+  end if;
+
+  v_open_at := (v_local_date + v_hours.open_time) at time zone 'Asia/Beirut';
+  v_close_at := case
+    when v_hours.close_time = time '24:00'
+      then ((v_local_date + 1)::timestamp) at time zone 'Asia/Beirut'
+    else (v_local_date + v_hours.close_time) at time zone 'Asia/Beirut'
+  end;
+
+  if p_start_time < v_open_at or p_end_time > v_close_at then
+    raise exception 'OUTSIDE_OPERATING_HOURS: This booking is outside operating hours.'
+      using errcode = 'check_violation';
+  end if;
+end;
+$$;
+
+revoke all on function public.assert_booking_time_contract(timestamptz, timestamptz, integer, boolean)
+  from public, anon, authenticated;
+
 create or replace function public.enforce_operating_hours_on_booking()
 returns trigger
 language plpgsql
 security definer
 set search_path = pg_catalog, public
 as $$
-declare
-  local_start timestamp;
-  local_end timestamp;
-  dow integer;
-  hours public.operating_hours%rowtype;
-  start_minutes integer;
-  end_minutes integer;
-  open_minutes integer;
-  close_minutes integer;
 begin
   if auth.role() = 'authenticated' and not public.is_admin() then
-    local_start := new.start_time at time zone 'Asia/Beirut';
-    local_end := new.end_time at time zone 'Asia/Beirut';
-    dow := extract(dow from local_start)::integer;
-
-    select * into hours
-    from public.operating_hours
-    where day_of_week = dow;
-
-    if not found or hours.is_closed then
-      raise exception 'The court is closed on this day.'
-        using errcode = 'check_violation';
-    end if;
-
-    start_minutes := extract(hour from local_start)::integer * 60 + extract(minute from local_start)::integer;
-    end_minutes := extract(hour from local_end)::integer * 60 + extract(minute from local_end)::integer;
-    if local_end::date > local_start::date then
-      end_minutes := end_minutes + 1440;
-    end if;
-    open_minutes := extract(hour from hours.open_time)::integer * 60 + extract(minute from hours.open_time)::integer;
-    close_minutes := extract(hour from hours.close_time)::integer * 60 + extract(minute from hours.close_time)::integer;
-
-    if start_minutes < open_minutes or end_minutes > close_minutes then
-      raise exception 'This booking is outside operating hours.'
-        using errcode = 'check_violation';
-    end if;
+    perform public.assert_booking_time_contract(
+      new.start_time,
+      new.end_time,
+      new.duration_minutes,
+      true
+    );
   end if;
 
   return new;
@@ -81,7 +112,7 @@ $$;
 
 drop trigger if exists trg_enforce_operating_hours_on_booking on public.bookings;
 create trigger trg_enforce_operating_hours_on_booking
-  before insert on public.bookings
+  before insert or update of start_time, end_time, duration_minutes on public.bookings
   for each row
   execute function public.enforce_operating_hours_on_booking();
 

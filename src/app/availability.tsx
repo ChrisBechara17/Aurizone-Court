@@ -9,7 +9,7 @@ import { CourtTimeline } from '@/components/CourtTimeline';
 import { DateSelector } from '@/components/DateSelector';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { COLORS } from '@/constants/colors';
-import { startOfDay, isSameDay, operatingHoursForDate, timeToMinutes } from '@/utils/dateUtils';
+import { operatingHoursForDate, sameVenueDate, timeToMinutes, venueCalendarDate, venueDateKeyForInstant, venueToday } from '@/utils/dateUtils';
 import { useAppStore } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
 
@@ -21,11 +21,11 @@ export default function AvailabilityScreen() {
   const operatingHours = useAppStore((s) => s.operatingHours);
 
   const [date, setDate] = useState<Date>(
-    params.date ? startOfDay(new Date(params.date)) : startOfDay(new Date()),
+    params.date ? venueCalendarDate(venueDateKeyForInstant(new Date(params.date))) : venueToday(),
   );
 
-  const dayOccupants = occupancy.filter((b) => isSameDay(parseISO(b.startTime), date));
-  const dayBlocks = courtBlocks.filter((b) => isSameDay(parseISO(b.startTime), date));
+  const dayOccupants = occupancy.filter((b) => sameVenueDate(b.startTime, date));
+  const dayBlocks = courtBlocks.filter((b) => sameVenueDate(b.startTime, date));
   const dayHours = operatingHoursForDate(operatingHours, date);
   const totalHours = dayHours.isClosed ? 0 : (timeToMinutes(dayHours.closeTime) - timeToMinutes(dayHours.openTime)) / 60;
   // B3: count physical court-hours, not the sum of every booking's duration.

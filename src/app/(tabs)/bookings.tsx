@@ -26,7 +26,10 @@ export default function BookingsScreen() {
   const allBookings = useAppStore((s) => s.bookings);
   const supportPhone = useAppStore((s) => s.supportPhone);
   const [filter, setFilter] = useState<Filter>('upcoming');
-  const [now, setNow] = useState(0);
+  // Seed with the real clock so the first frame classifies bookings correctly;
+  // starting at 0 briefly showed every confirmed booking (even started/past ones)
+  // as "Upcoming" until the effect ran.
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const updateNow = () => setNow(Date.now());

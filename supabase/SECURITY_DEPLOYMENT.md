@@ -57,6 +57,24 @@ After the complete smoke test passes, run `security-lockdown.sql`. Then verify a
 direct REST insert/update with an authenticated user token fails while the same
 operation through its Edge Function succeeds.
 
+After applying `anonymous-reference-lockdown.sql`, verify the reference-table
+contract directly. Set local shell variables to the project URL, anon key, and a
+short-lived JWT from a signed-in non-admin test account; do not commit them.
+
+```powershell
+$table = 'coaches'
+curl.exe -i "$env:SUPABASE_URL/rest/v1/$table?select=id&limit=1" `
+  -H "apikey: $env:SUPABASE_ANON_KEY"
+
+curl.exe -i "$env:SUPABASE_URL/rest/v1/$table?select=id&limit=1" `
+  -H "apikey: $env:SUPABASE_ANON_KEY" `
+  -H "Authorization: Bearer $env:TEST_USER_JWT"
+```
+
+The anonymous request must return `401` or `403`; the authenticated request must
+return `200`. Repeat with `court_blocks`, `app_settings`, `app_config`, and
+`operating_hours`.
+
 ## Rollback
 
 If secure writes fail before lock-down, set `EXPO_PUBLIC_SECURE_WRITES=false` and

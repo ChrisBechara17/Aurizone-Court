@@ -22,62 +22,80 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
 4. `pricing.sql`
    - Creates `app_settings`.
    - Adds base court/ball-machine/loyalty numeric settings.
-   - Adds server-side booking price calculation.
+   - Adds server-side booking price calculation (base version).
    - Adds free-reward balance logic.
 
-5. `peak-pricing.sql`
-   - Adds peak-price support for bookings starting from 4 PM.
-
-6. `half-court.sql`
-   - Adds half-court basketball support.
-   - Adds half-court pricing settings and conflict behavior.
-
-7. `conflict-guard.sql`
+5. `conflict-guard.sql`
+   - Installs `btree_gist` (needed by the next step's side-aware constraint).
    - Adds database-level overlap protection for court bookings.
    - Adds coach-vs-coach overlap protection.
 
-8. `privacy-view.sql`
-   - Adds the time-only court occupancy view used by the app for availability/conflicts.
+6. `half-court.sql`
+   - Adds half-court basketball support (side_range + side-aware overlap
+     constraint that replaces conflict-guard's base one).
+   - Adds half-court pricing settings.
+   - Must run AFTER conflict-guard.sql (`btree_gist` and the base constraint it
+     replaces) and pricing.sql.
 
-9. `app-config.sql`
+7. `privacy-view.sql`
+   - Adds the time-only court occupancy view used by the app for
+     availability/conflicts. Runs AFTER half-court.sql so this occupancy
+     definition (with the completed-today window) is the authoritative one.
+
+8. `app-config.sql`
    - Adds text-based app config such as support phone and tier reward text.
 
-10. `business-controls.sql`
+9. `business-controls.sql`
    - Adds admin-controlled weekly operating hours.
 
-11. `operations-upgrades.sql`
+10. `operations-upgrades.sql`
     - Adds admin audit logs.
     - Adds in-app notifications.
     - Adds booking lifecycle reason fields.
     - Adds loyalty transaction history and backfill.
 
-12. `push-readiness.sql`
+11. `push-readiness.sql`
     - Adds push token storage for supported development/production builds.
 
-13. `harden-booking-integrity.sql`
+12. `harden-booking-integrity.sql`
     - Adds extra booking integrity checks against invalid/tampered inserts.
 
-14. `harden-security.sql`
+13. `harden-security.sql`
     - Adds final security triggers.
     - Blocks self-admin promotion.
     - Prevents non-admin booking lifecycle/loyalty abuse.
     - Revokes anonymous access to `court_occupancy`.
 
-15. `security-boundary.sql`
+14. `security-boundary.sql`
     - Adds security events, server-only rate limiting, strict booking immutability,
       and the trusted Edge Function foundation.
     - Deploy the functions and follow `SECURITY_DEPLOYMENT.md` after this step.
 
-16. `security-lockdown.sql` (final production step only)
+15. `security-lockdown.sql` (final production step only)
     - Revokes legacy direct writes after secure-write testing passes.
     - Do not run during initial setup or before Edge Functions are deployed.
 
-17. `post-lockdown-integrity.sql`
+16. `post-lockdown-integrity.sql`
     - Corrects paid-only free rewards and installs transactional service-role RPCs.
     - Deploy the updated Edge Functions immediately after applying it.
 
-18. `venue-location.sql`
+17. `venue-location.sql`
     - Adds the public RizeON name, short location, and Maps destination.
+
+18. `anonymous-reference-lockdown.sql`
+    - Intentionally removes anonymous REST reads from coaches, court blocks,
+      settings, configuration, and operating hours.
+    - Authenticated reads are unchanged. Run the REST checks in
+      `SECURITY_DEPLOYMENT.md` after applying it.
+
+19. `peak-pricing.sql` (MUST be last)
+    - Adds peak-price support for bookings starting from 4 PM Asia/Beirut.
+    - Redefines `compute_booking_price()` as the single authoritative version,
+      folding in peak selection, the half-court rate, span-based hours, and the
+      free-reward ledger check. It MUST run after `pricing.sql` and
+      `half-court.sql`, which both define an earlier (non-peak) copy of that
+      function — running it any earlier lets one of those copies win and silently
+      disables peak pricing.
 
 ## After Existing Project Updates
 
@@ -95,10 +113,18 @@ Deploy and test Edge Functions next. Run `security-lockdown.sql` only after the
 full secure-write smoke test described in `SECURITY_DEPLOYMENT.md` passes.
 For an already locked project, run `post-lockdown-integrity.sql` next and then
 redeploy all secure mutation Edge Functions. Run `venue-location.sql` afterward
-to publish the RizeON Maps destination.
+to publish the RizeON Maps destination, then run
+`anonymous-reference-lockdown.sql` to apply the intentional anonymous API
+change.
 
-Run `harden-security.sql` last because it references columns created by
-`operations-upgrades.sql`.
+Finally, re-run `peak-pricing.sql` LAST so the authoritative peak-aware
+`compute_booking_price()` is the version installed — any run that applies
+`pricing.sql` or `half-court.sql` reinstalls a non-peak copy and must be
+followed by `peak-pricing.sql`.
+
+Run `harden-security.sql` after `operations-upgrades.sql` because it references
+columns that file creates. `peak-pricing.sql` is the only file that must run
+strictly last of all.
 
 ## Email OTP
 

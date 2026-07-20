@@ -10,6 +10,7 @@
     "@sentry/react-native": "~7.11.0",
     "@supabase/supabase-js": "^2.110.0",
     "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
     "expo": "~56.0.15",
     "expo-constants": "~56.0.20",
     "expo-dev-client": "~56.0.22",
@@ -60,7 +61,8 @@
     "android:usb": "node ./scripts/open-expo-usb.js",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "verify:public-errors": "node scripts/verify-public-errors.mjs"
   },
   "private": true
 }

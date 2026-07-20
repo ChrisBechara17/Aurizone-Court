@@ -1,5 +1,5 @@
 import { z } from 'npm:zod@4';
-import { limit, parse, run, uuid } from '../_shared/security.ts';
+import { limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
 
 const body = z.object({ requestId: uuid, userId: uuid, title: z.string().trim().min(1).max(120), message: z.string().trim().min(1).max(1000) }).strict();
 
@@ -19,8 +19,11 @@ Deno.serve((req) => run(req, true, async (ctx) => {
     p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_user_id: input.userId,
     p_title: input.title, p_message: input.message,
   });
-  if (error) throw error;
-  const { data: tokens } = await ctx.admin.from('push_tokens').select('token').eq('user_id', input.userId).eq('is_active', true);
-  if (tokens?.length) sendPush(tokens.map((row) => row.token), input.title, input.message).catch(() => undefined);
+  if (error) rpcError(error);
+  // Don't re-push on an idempotent replay (see admin-bookings for rationale).
+  if (!result?.replayed) {
+    const { data: tokens } = await ctx.admin.from('push_tokens').select('token').eq('user_id', input.userId).eq('is_active', true);
+    if (tokens?.length) sendPush(tokens.map((row) => row.token), input.title, input.message).catch(() => undefined);
+  }
   return result.notification;
 }));

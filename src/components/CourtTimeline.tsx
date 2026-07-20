@@ -2,7 +2,7 @@ import { Text, View } from 'react-native';
 import { format, parseISO } from 'date-fns';
 import { Booking, CourtBlock } from '@/models';
 import { COLORS, sportAccent, sportLabel } from '@/constants/colors';
-import { OPEN_HOUR, CLOSE_HOUR, fmtTime, isSameDay, timeToMinutes } from '@/utils/dateUtils';
+import { OPEN_HOUR, CLOSE_HOUR, fmtTime, sameVenueDate, timeToMinutes, venueMinutesForInstant } from '@/utils/dateUtils';
 import { COACHES } from '@/data/seedData';
 
 const HOUR_HEIGHT = 64;
@@ -29,19 +29,18 @@ export function CourtTimeline({ date, bookings, courtBlocks, openTime, closeTime
     (b) =>
       b.usesMainCourt &&
       (b.status === 'confirmed' || b.status === 'completed') &&
-      isSameDay(parseISO(b.startTime), date),
+      sameVenueDate(b.startTime, date),
   );
 
-  const blocks = courtBlocks.filter((blk) => isSameDay(parseISO(blk.startTime), date));
+  const blocks = courtBlocks.filter((blk) => sameVenueDate(blk.startTime, date));
 
   const minutesFromOpen = (iso: string) => {
-    const d = parseISO(iso);
-    return d.getHours() * 60 + d.getMinutes() - openHour * 60;
+    return venueMinutesForInstant(iso) - openHour * 60;
   };
 
   const now = new Date();
-  const showNow = isSameDay(now, date);
-  const nowTop = (now.getHours() * 60 + now.getMinutes() - openHour * 60) / 60 * HOUR_HEIGHT;
+  const showNow = sameVenueDate(now, date);
+  const nowTop = (venueMinutesForInstant(now) - openHour * 60) / 60 * HOUR_HEIGHT;
 
   return (
     <View style={{ flexDirection: 'row', height: totalHours * HOUR_HEIGHT }}>

@@ -61,6 +61,30 @@ function warnMissingUpgrade(error: any, fallbackFile?: string) {
   }
 }
 
+// PostgREST caps a single response at ~1000 rows, so an unbounded select on a
+// growing table silently truncates. Page through with .range() until a short
+// page comes back, so admin lists (bookings, ledger, occupancy) stay complete.
+const PAGE_SIZE = 1000;
+async function fetchAllRows<T extends { id: string }>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  const seen = new Set<string>();
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    for (const row of rows) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        all.push(row);
+      }
+    }
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
 // ---------------------------------------------------------------------------
 // Data access layer for Supabase. Maps snake_case DB rows <-> camelCase models.
 // Replaces the old AsyncStorage-backed storageService for shared data.
@@ -380,16 +404,18 @@ export const supabaseService = {
   // Bookings ----------------------------------------------------------------
   async listBookings(): Promise<Booking[]> {
     // RLS: regular users get their own rows; admins get all rows.
-    const { data, error } = await supabase.from('bookings').select('*').order('start_time');
-    if (error) throw error;
-    return (data ?? []).map(toBooking);
+    const rows = await fetchAllRows<any>((from, to) =>
+      supabase.from('bookings').select('*').order('start_time').order('id').range(from, to),
+    );
+    return rows.map(toBooking);
   },
 
   /** All confirmed court occupancy (times only, no user info) — for conflicts + timeline. */
   async listOccupancy(): Promise<Booking[]> {
-    const { data, error } = await supabase.from('court_occupancy').select('*').order('start_time');
-    if (error) throw error;
-    return (data ?? []).map(toOccupancy);
+    const rows = await fetchAllRows<any>((from, to) =>
+      supabase.from('court_occupancy').select('*').order('start_time').order('id').range(from, to),
+    );
+    return rows.map(toOccupancy);
   },
 
   /** Insert bookings and return the stored rows — total_price is set server-side
@@ -457,13 +483,14 @@ export const supabaseService = {
       endTime: string;
       durationMinutes: number;
       totalPrice: number;
+      overrideOperatingHours: boolean;
     }>,
   ): Promise<void> {
     if (secureWritesEnabled && ('status' in patch || 'noShow' in patch || 'startTime' in patch)) {
       if (patch.status === 'cancelled') await invokeSecure('admin-bookings', { action: 'cancel', bookingId: id, reason: patch.cancelReason || 'Cancelled by admin' });
       else if (patch.status === 'completed') await invokeSecure('admin-bookings', { action: 'complete', bookingId: id });
       else if (patch.noShow) await invokeSecure('admin-bookings', { action: 'no_show', bookingId: id, reason: patch.noShowReason || 'No-show' });
-      else if (patch.startTime && patch.endTime && patch.durationMinutes) await invokeSecure('admin-bookings', { action: 'reschedule', bookingId: id, startTime: patch.startTime, endTime: patch.endTime, durationMinutes: patch.durationMinutes });
+      else if (patch.startTime && patch.endTime && patch.durationMinutes) await invokeSecure('admin-bookings', { action: 'reschedule', bookingId: id, startTime: patch.startTime, endTime: patch.endTime, durationMinutes: patch.durationMinutes, overrideOperatingHours: patch.overrideOperatingHours ?? false });
       return;
     }
     if (secureWritesEnabled && 'notificationId' in patch) {
@@ -602,42 +629,20 @@ export const supabaseService = {
 
   // Loyalty ledger -----------------------------------------------------------
   async listLoyaltyTransactions(): Promise<LoyaltyTransaction[]> {
-    const { data, error } = await supabase
-      .from('loyalty_transactions')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) {
+    try {
+      const rows = await fetchAllRows<any>((from, to) =>
+        supabase
+          .from('loyalty_transactions')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+      );
+      return rows.map(toLoyaltyTransaction);
+    } catch (error) {
       warnMissingUpgrade(error, 'operations-upgrades.sql');
       throw error;
     }
-    return (data ?? []).map(toLoyaltyTransaction);
-  },
-
-  async insertLoyaltyTransaction(input: {
-    userId: string;
-    bookingId?: string | null;
-    type: string;
-    points: number;
-    description: string;
-    createdByAdminId?: string | null;
-  }): Promise<LoyaltyTransaction> {
-    const { data, error } = await supabase
-      .from('loyalty_transactions')
-      .insert({
-        user_id: input.userId,
-        booking_id: input.bookingId ?? null,
-        type: input.type,
-        points: Math.round(input.points),
-        description: input.description,
-        created_by_admin_id: input.createdByAdminId ?? null,
-      })
-      .select()
-      .single();
-    if (error) {
-      warnMissingUpgrade(error, 'operations-upgrades.sql');
-      throw error;
-    }
-    return toLoyaltyTransaction(data);
   },
 
   // Push readiness ----------------------------------------------------------

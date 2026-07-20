@@ -30,10 +30,24 @@ export const authService = {
       currentLevel: assurance.currentLevel,
       nextLevel: assurance.nextLevel,
       verifiedFactors: factors.totp.filter((factor) => factor.status === 'verified'),
+      // The SDK's `totp` list is verified-only; unverified factors are in `all`.
+      unverifiedFactors: (factors.all ?? []).filter((factor) => factor.factor_type === 'totp' && factor.status === 'unverified'),
     };
   },
 
   async enrollAdminTotp() {
+    // Clear any half-finished (unverified) TOTP factor before enrolling. Supabase
+    // rejects a second factor sharing the friendly name 'RizeON Admin', so an
+    // admin who backgrounds the app mid-setup (e.g. to open their authenticator)
+    // would otherwise be permanently unable to re-enroll — and, since /admin
+    // hard-redirects here, permanently locked out of the console.
+    const { data: existing, error: listError } = await supabase.auth.mfa.listFactors();
+    if (listError) throw listError;
+    // Unverified factors live in `all` (the `totp` list is verified-only).
+    for (const factor of (existing?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'unverified')) {
+      const { error: unenrollError } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+      if (unenrollError) throw unenrollError;
+    }
     const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'RizeON Admin' });
     if (error) throw error;
     return data;

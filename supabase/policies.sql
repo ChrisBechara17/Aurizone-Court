@@ -58,7 +58,7 @@ declare
   uid uuid := auth.uid();
 begin
   if uid is null then
-    raise exception 'Not signed in.'
+    raise exception 'AUTH_REQUIRED: Not signed in.'
       using errcode = 'insufficient_privilege';
   end if;
 

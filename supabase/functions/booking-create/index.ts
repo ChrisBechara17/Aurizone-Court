@@ -1,5 +1,5 @@
 import { z } from 'npm:zod@4';
-import { isoDate, limit, parse, run, uuid } from '../_shared/security.ts';
+import { isoDate, limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
 
 const booking = z.object({
   id: uuid,
@@ -45,13 +45,7 @@ Deno.serve((req) => run(req, false, async (ctx) => {
     p_request_id: input.requestId,
     p_bookings: rows,
   });
-  if (error) {
-    const conflict = error.code === '23P01';
-    throw Object.assign(
-      new Error(conflict ? 'That time was just booked. Please choose another available slot.' : error.message),
-      { status: 409, code: conflict ? 'BOOKING_CONFLICT' : error.code ?? 'BOOKING_FAILED' },
-    );
-  }
+  if (error) rpcError(error);
   // The authoritative AFTER INSERT trigger in operations-upgrades.sql creates
   // booking_base loyalty exactly once. Do not duplicate that transaction here.
   return data?.bookings ?? [];

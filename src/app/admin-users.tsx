@@ -7,15 +7,18 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { UserRosterList } from '@/components/admin/UserRosterList';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
+import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
 
 export default function AdminUsersScreen() {
   const ADMIN = COLORS.warning; // read live so it follows the active theme
   const router = useRouter();
   const user = useAppStore((s) => s.user);
   const roster = useAppStore((s) => s.users);
+  const mfaReady = useRequireAdminMfa();
   const [search, setSearch] = useState('');
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
+  if (!mfaReady) return null; // useRequireAdminMfa redirects to /admin-mfa
 
   return (
     <ScreenContainer>

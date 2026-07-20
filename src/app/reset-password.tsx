@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react-native';
@@ -34,41 +34,60 @@ export default function ResetPassword() {
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [mfaReady, setMfaReady] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-
+  // Extracted so the error state can offer a Retry: a transient failure here used
+  // to be a dead end (the check ran once on mount, and the Verify button stays
+  // disabled with no factor id), forcing the user to restart the whole flow and
+  // burn another single-use reset code.
+  // State updates all happen inside the promise callbacks (not synchronously in
+  // the effect), so a transient failure no longer dead-ends: retryMfaCheck can
+  // re-run this. Previously the check ran once on mount and left the Verify
+  // button disabled with no factor id, forcing a full restart of the flow.
+  const runMfaCheck = useCallback(() => {
     authService
       .getMfaStatus()
       .then((status) => {
-        if (!active) return;
-
+        setError(null);
         if (status.currentLevel === 'aal2' || status.nextLevel !== 'aal2') {
+          setMfaRequired(false);
           setMfaReady(true);
           return;
         }
-
         setMfaRequired(true);
         const factor = status.verifiedFactors[0];
         if (!factor) {
-          setError('Your authenticator could not be loaded. Return to sign in and request a new reset code.');
+          setError('Your authenticator could not be loaded. Tap Retry, or return to sign in and request a new reset code.');
           return;
         }
         setMfaFactorId(factor.id);
       })
       .catch(() => {
-        if (active) {
-          setMfaRequired(true);
-          setError('Could not verify your account security. Check your connection and try again.');
-        }
+        setMfaRequired(true);
+        setError('Could not verify your account security. Check your connection and tap Retry.');
       })
-      .finally(() => {
-        if (active) setCheckingMfa(false);
-      });
-
-    return () => {
-      active = false;
-    };
+      .finally(() => setCheckingMfa(false));
   }, []);
+
+  useEffect(() => {
+    runMfaCheck();
+  }, [runMfaCheck]);
+
+  // Retry is a user action, so it can show the spinner immediately.
+  const retryMfaCheck = useCallback(() => {
+    setCheckingMfa(true);
+    setError(null);
+    runMfaCheck();
+  }, [runMfaCheck]);
+
+  // Abandoning the flow must end the recovery session; otherwise it stays live
+  // and silently signs the account in on the next cold start (hydrate() finds it),
+  // even though the password was never changed.
+  const handleBackToSignIn = useCallback(async () => {
+    try {
+      await authService.signOut();
+    } finally {
+      router.replace('/auth');
+    }
+  }, [router]);
 
   const verifyMfa = async () => {
     if (!mfaFactorId || mfaCode.length !== 6 || mfaVerifying) return;
@@ -146,14 +165,23 @@ export default function ResetPassword() {
                     </Text>
                   </View>
 
-                  <OtpCodeInput value={mfaCode} onChange={setMfaCode} onComplete={() => undefined} />
-                  <ErrorBanner message={error} />
-                  <PrimaryGradientButton
-                    label="Verify Authenticator"
-                    onPress={verifyMfa}
-                    loading={mfaVerifying}
-                    disabled={mfaCode.length !== 6 || !mfaFactorId}
-                  />
+                  {mfaFactorId ? (
+                    <>
+                      <OtpCodeInput value={mfaCode} onChange={setMfaCode} onComplete={() => undefined} />
+                      <ErrorBanner message={error} />
+                      <PrimaryGradientButton
+                        label="Verify Authenticator"
+                        onPress={verifyMfa}
+                        loading={mfaVerifying}
+                        disabled={mfaCode.length !== 6 || !mfaFactorId}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <ErrorBanner message={error} />
+                      <PrimaryGradientButton label="Retry" onPress={retryMfaCheck} loading={checkingMfa} />
+                    </>
+                  )}
                 </View>
               ) : (
               <View style={{ gap: 18 }}>
@@ -196,7 +224,7 @@ export default function ResetPassword() {
             </GlassCard>
           </Animated.View>
 
-          <Pressable onPress={() => router.replace('/auth')}>
+          <Pressable onPress={handleBackToSignIn}>
             <Text style={{ color: COLORS.textMuted, fontSize: 14, textAlign: 'center' }}>
               Back to <Text style={{ color: COLORS.neon, fontWeight: '800' }}>Sign in</Text>
             </Text>
