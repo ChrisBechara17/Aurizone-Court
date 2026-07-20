@@ -3,6 +3,7 @@ import {
   format,
   isBefore,
   isSameDay,
+  isValid,
   parseISO,
   startOfDay,
 } from 'date-fns';
@@ -232,7 +233,7 @@ export function venueOperatingWindow(date: Date, hours: OperatingHour): { open: 
   const dateKey = venueDateKey(date);
   const open = venueWallTimeToInstant(dateKey, hours.openTime);
   const close = hours.closeTime === '24:00'
-    ? venueWallTimeToInstant(addVenueDays(dateKey, 1), '00:00')
+    ? addMinutes(venueWallTimeToInstant(dateKey, '23:00'), 60)
     : venueWallTimeToInstant(dateKey, hours.closeTime);
   return { open, close };
 }
@@ -243,9 +244,9 @@ export function fitsVenueOperatingWindow(
   durationHours: number,
   hours: OperatingHour,
 ): boolean {
-  const window = venueOperatingWindow(date, hours);
-  if (!window) return false;
   try {
+    const window = venueOperatingWindow(date, hours);
+    if (!window) return false;
     const start = combineDateAndTime(date, time);
     const end = calculateEndTime(start, durationHours);
     return start.getTime() >= window.open.getTime() && end.getTime() <= window.close.getTime();
@@ -267,11 +268,27 @@ export function fitsOperatingHoursAt(
   const { dayOfWeek } = beirutWallParts(instant);
   const hours = allHours.find((h) => h.dayOfWeek === dayOfWeek) ?? DEFAULT_OPERATING_HOURS[dayOfWeek];
   const date = venueCalendarDate(venueDateKeyForInstant(instant));
-  const window = venueOperatingWindow(date, hours);
-  if (!window) return { hours, fits: false };
-  const end = calculateEndTime(instant, durationHours);
-  const fits = instant.getTime() >= window.open.getTime() && end.getTime() <= window.close.getTime();
-  return { hours, fits };
+  try {
+    const window = venueOperatingWindow(date, hours);
+    if (!window) return { hours, fits: false };
+    const end = calculateEndTime(instant, durationHours);
+    return { hours, fits: instant.getTime() >= window.open.getTime() && end.getTime() <= window.close.getTime() };
+  } catch {
+    return { hours, fits: false };
+  }
+}
+
+export function venueCalendarDateFromParam(value: string | string[] | undefined): Date {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return venueToday();
+  try {
+    if (DATE_KEY_RE.test(raw)) return venueCalendarDate(raw);
+    const instant = parseISO(raw);
+    if (!isValid(instant)) return venueToday();
+    return venueCalendarDate(venueDateKeyForInstant(instant));
+  } catch {
+    return venueToday();
+  }
 }
 
 export const isPast = (iso: string) => isBefore(parseISO(iso), new Date());

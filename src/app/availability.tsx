@@ -9,20 +9,19 @@ import { CourtTimeline } from '@/components/CourtTimeline';
 import { DateSelector } from '@/components/DateSelector';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { COLORS } from '@/constants/colors';
-import { operatingHoursForDate, sameVenueDate, timeToMinutes, venueCalendarDate, venueDateKeyForInstant, venueToday } from '@/utils/dateUtils';
+import { operatingHoursForDate, sameVenueDate, timeToMinutes, venueCalendarDateFromParam } from '@/utils/dateUtils';
 import { useAppStore } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
 
 export default function AvailabilityScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ date?: string }>();
+  const params = useLocalSearchParams<{ date?: string | string[] }>();
   const occupancy = useAppStore((s) => s.occupancy);
   const courtBlocks = useAppStore((s) => s.courtBlocks);
+  const coaches = useAppStore((s) => s.coaches);
   const operatingHours = useAppStore((s) => s.operatingHours);
 
-  const [date, setDate] = useState<Date>(
-    params.date ? venueCalendarDate(venueDateKeyForInstant(new Date(params.date))) : venueToday(),
-  );
+  const [date, setDate] = useState<Date>(() => venueCalendarDateFromParam(params.date));
 
   const dayOccupants = occupancy.filter((b) => sameVenueDate(b.startTime, date));
   const dayBlocks = courtBlocks.filter((b) => sameVenueDate(b.startTime, date));
@@ -97,10 +96,10 @@ export default function AvailabilityScreen() {
                 <Text style={{ color: COLORS.success, fontWeight: '800', fontSize: 15, marginBottom: 12 }}>
                   Court is wide open ✨
                 </Text>
-                <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
+                <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} coaches={coaches} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
               </View>
             ) : (
-              <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
+              <CourtTimeline date={date} bookings={occupancy} courtBlocks={courtBlocks} coaches={coaches} openTime={dayHours.openTime} closeTime={dayHours.closeTime} />
             )}
           </GlassCard>
         </Animated.View>

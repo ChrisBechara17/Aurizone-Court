@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { CalendarCheck, CalendarRange, Gift, Rocket, Users } from 'lucide-react-native';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
@@ -69,6 +69,7 @@ export default function BookScreen() {
   }
   const [date, setDate] = useState<Date>(venueToday());
   const [time, setTime] = useState('18:00');
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [duration, setDuration] = useState(1);
   const [useFree, setUseFree] = useState(false);
   const [ballMachine, setBallMachine] = useState(false);
@@ -92,14 +93,19 @@ export default function BookScreen() {
   const daySlots = useMemo(() => {
     const slots = timeSlotsForOperatingHours(dayHours);
     if (venueDateKey(date) !== venueDateKey(venueToday())) return slots;
-    // eslint-disable-next-line react-hooks/purity -- current time intentionally filters today's elapsed slots
-    const now = Date.now();
-    return slots.filter((slot) => combineDateAndTime(date, slot).getTime() > now);
-  }, [dayHours, date]);
+    return slots.filter((slot) => combineDateAndTime(date, slot).getTime() > nowTick);
+  }, [dayHours, date, nowTick]);
+
+  useFocusEffect(useCallback(() => {
+    setNowTick(Date.now());
+    const timer = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []));
 
   // Snap the selected time into the day's valid slots. Adjust during render
   // (converges: after the snap, `time` is one of daySlots).
   if (daySlots.length > 0 && !daySlots.includes(time)) setTime(daySlots[0]);
+  const selectedTime = daySlots.includes(time) ? time : daySlots[0] ?? null;
 
   // Booking policy: only disabled accounts (3+ no-shows) are blocked. Users may
   // hold any number of upcoming bookings.
@@ -111,7 +117,7 @@ export default function BookScreen() {
   const accent = sportAccent(sport);
   // Peak pricing is decided by the START time (≥ 4 PM = peak). The server
   // re-computes this authoritatively; here it drives the live estimate.
-  const peak = isPeakStart(combineDateAndTime(date, time));
+  const peak = selectedTime ? isPeakStart(combineDateAndTime(date, selectedTime)) : false;
   const price = courtRate(pricing, sport, half, peak);
 
   // Compute unavailable start times for the chosen date + duration.
@@ -132,8 +138,8 @@ export default function BookScreen() {
     });
   }, [date, duration, occupancy, courtBlocks, half, dayHours, daySlots]);
 
-  const start = combineDateAndTime(date, time);
-  const end = calculateEndTime(start, duration);
+  const start = selectedTime ? combineDateAndTime(date, selectedTime) : null;
+  const end = start ? calculateEndTime(start, duration) : null;
   const machineCost = machineActive ? pricing.ballMachineRate * duration : 0;
   // Free reward covers the court; the ball-machine add-on is still charged.
   const total = isFree ? machineCost : price * duration + machineCost;
@@ -143,12 +149,13 @@ export default function BookScreen() {
   const onConfirm = async () => {
     if (submitting) return;
     setError(null);
+    if (!selectedTime || !start) return setError('No future start times remain today. Choose another date.');
     // Policy checks only surface when the user actually tries to book.
     if (blockReason) {
       setError(blockReason);
       return;
     }
-    if (!fitsVenueOperatingWindow(date, time, duration, dayHours)) {
+    if (!fitsVenueOperatingWindow(date, selectedTime, duration, dayHours)) {
       setError(dayHours.isClosed ? 'The court is closed that day.' : 'This session would run outside operating hours.');
       return;
     }
@@ -164,7 +171,7 @@ export default function BookScreen() {
     const res = await bookCourt({
       sportType: sport,
       date,
-      startTime: time,
+      startTime: selectedTime,
       durationHours: duration,
       repeatWeekly: false,
       repeatCount: 1,
@@ -224,6 +231,8 @@ export default function BookScreen() {
           <Label text="Start Time" />
           {dayHours.isClosed ? (
             <ErrorBanner message="The court is closed on this day." />
+          ) : daySlots.length === 0 ? (
+            <ErrorBanner message="No future start times remain today. Choose another date." />
           ) : (
             <TimeSlotPicker value={time} onChange={setTime} accent={accent} unavailable={unavailable} slots={daySlots} />
           )}
@@ -307,7 +316,7 @@ export default function BookScreen() {
 
         {/* Summary */}
         <View style={{ paddingHorizontal: 20, gap: 18 }}>
-        <PriceSummaryCard
+        {start && end ? <PriceSummaryCard
           accent={isFree ? COLORS.success : accent}
           rows={[
             { label: 'Sport', value: sport === 'basketball' ? 'Basketball' : 'Tennis', highlight: true },
@@ -324,7 +333,7 @@ export default function BookScreen() {
             ...(isFree ? [{ label: 'Reward applied', value: 'Free court 🎁', highlight: true }] : []),
           ]}
           total={isFree && total === 0 ? 'FREE 🎁' : `$${total}`}
-        />
+        /> : null}
 
         <ErrorBanner message={error} />
 
@@ -334,6 +343,7 @@ export default function BookScreen() {
           colors={[accent, accent]}
           onPress={onConfirm}
           loading={submitting}
+          disabled={!selectedTime}
         />
         </View>
       </ScrollView>
