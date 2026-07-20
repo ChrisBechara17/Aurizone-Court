@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
-import { ShieldCheck } from 'lucide-react-native';
+import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react-native';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { GlassCard } from '@/components/GlassCard';
 import { ErrorBanner } from '@/components/ErrorBanner';
@@ -21,9 +21,13 @@ export default function AdminMfaScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadStatus = useCallback(async () => {
     if (!user?.isAdmin) return;
-    authService.getMfaStatus().then(async (status) => {
+    setLoading(true);
+    setError(null);
+    setFactorId(null);
+    try {
+      const status = await authService.getMfaStatus();
       if (status.currentLevel === 'aal2') return router.replace('/admin');
       const existing = status.verifiedFactors[0];
       if (existing) setFactorId(existing.id);
@@ -32,8 +36,15 @@ export default function AdminMfaScreen() {
         setEnrollment(enrolled as Enrollment);
         setFactorId(enrolled.id);
       }
-    }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not load admin verification.');
+    } finally { setLoading(false); }
   }, [router, user?.isAdmin]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => void loadStatus(), 0);
+    return () => clearTimeout(timer);
+  }, [loadStatus]);
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
 
@@ -67,6 +78,18 @@ export default function AdminMfaScreen() {
             ) : null}
             <TextInput value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" placeholder="000000" placeholderTextColor={COLORS.textFaint} style={{ color: COLORS.text, backgroundColor: COLORS.chip, borderWidth: 1, borderColor: COLORS.cardBorder, borderRadius: 8, padding: 14, textAlign: 'center', fontSize: 24, letterSpacing: 8 }} />
             <ErrorBanner message={error} />
+            {error && !factorId ? (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable onPress={() => void loadStatus()} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', padding: 10 }}>
+                  <RefreshCw size={16} color={COLORS.neon} />
+                  <Text style={{ color: COLORS.neon, fontWeight: '800' }}>Retry</Text>
+                </Pressable>
+                <Pressable onPress={() => router.replace('/(tabs)/profile')} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', padding: 10 }}>
+                  <ArrowLeft size={16} color={COLORS.textMuted} />
+                  <Text style={{ color: COLORS.textMuted, fontWeight: '800' }}>Back to Profile</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <PrimaryGradientButton label="Verify Admin" onPress={verify} loading={loading} disabled={code.length !== 6 || !factorId} />
           </View>
         </GlassCard>

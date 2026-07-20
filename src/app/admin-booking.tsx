@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, CheckCircle2, ChevronRight, UserX, X } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -64,35 +64,52 @@ export default function AdminBookingScreen() {
   // eslint-disable-next-line react-hooks/purity -- intentional current-time read to show whether the booking has started; re-reads each render as intended
   const hasStarted = start.getTime() <= Date.now();
 
-  const onCancel = async () => {
+  const runCancel = async (reason: string) => {
     if (submitting) return;
     setActionErr(null);
-    const reason = cancelReason.trim();
-    if (!reason) return setActionErr('A cancellation reason is required.');
     setSubmitting(true);
     const res = await cancelBooking(booking.id, true, reason).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not cancel booking.');
   };
 
-  const onComplete = async () => {
+  const onCancel = () => {
+    const reason = cancelReason.trim();
+    if (!reason) return setActionErr('A cancellation reason is required.');
+    Alert.alert('Cancel booking?', `The customer will be notified. Reason: ${reason}`, [
+      { text: 'Keep Booking', style: 'cancel' },
+      { text: 'Cancel Booking', style: 'destructive', onPress: () => void runCancel(reason) },
+    ]);
+  };
+
+  const runComplete = async () => {
     if (submitting) return;
     setActionErr(null);
     setSubmitting(true);
     const res = await markBookingCompleted(booking.id).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not complete booking.');
   };
+  const onComplete = () => Alert.alert('Mark completed?', 'This adds completion credit to the customer’s rewards.', [
+    { text: 'Not Yet', style: 'cancel' },
+    { text: 'Mark Completed', onPress: () => void runComplete() },
+  ]);
 
-  const onNoShow = async () => {
+  const runNoShow = async (reason: string) => {
     if (submitting) return;
     setActionErr(null);
-    const reason = noShowReason.trim();
-    if (!reason) return setActionErr('A no-show reason is required.');
     setSubmitting(true);
     const res = await markBookingNoShow(booking.id, reason).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not mark no-show.');
   };
+  const onNoShow = () => {
+    const reason = noShowReason.trim();
+    if (!reason) return setActionErr('A no-show reason is required.');
+    Alert.alert('Record no-show?', `This adds a strike to the customer’s account. Reason: ${reason}`, [
+      { text: 'Go Back', style: 'cancel' },
+      { text: 'Record No-show', style: 'destructive', onPress: () => void runNoShow(reason) },
+    ]);
+  };
 
-  const onReschedule = async () => {
+  const runReschedule = async () => {
     if (submitting) return;
     setActionErr(null);
     setSubmitting(true);
@@ -104,6 +121,11 @@ export default function AdminBookingScreen() {
     }).finally(() => setSubmitting(false));
     if (!res.ok) setActionErr(res.error ?? 'Could not reschedule booking.');
   };
+  const onReschedule = () => Alert.alert(
+    'Reschedule booking?',
+    `Move from ${fmtDateLong(booking.startTime)} at ${fmtTime(booking.startTime)} to ${fmtDateLong(rescheduleDate)} at ${rescheduleTime}${overrideHours ? ' using the operating-hours override' : ''}?`,
+    [{ text: 'Keep Current Time', style: 'cancel' }, { text: 'Reschedule', onPress: () => void runReschedule() }],
+  );
 
   const rows: { label: string; value: string }[] = [
     { label: 'Type', value: booking.bookingType === 'court' ? 'Court' : 'Coach' },
@@ -201,7 +223,7 @@ export default function AdminBookingScreen() {
                     label="Reschedule Booking"
                     color={ADMIN}
                     icon={<ChevronRight size={16} color={ADMIN} />}
-                    disabled={submitting}
+                    disabled={submitting || booking.status !== 'confirmed'}
                     onPress={onReschedule}
                   />
 
@@ -225,7 +247,7 @@ export default function AdminBookingScreen() {
                         label="Mark No-show"
                         color={COLORS.danger}
                         icon={<UserX size={16} color={COLORS.danger} />}
-                        disabled={submitting || !!booking.noShow}
+                        disabled={submitting || booking.status !== 'confirmed' || !!booking.noShow}
                         onPress={onNoShow}
                       />
                     </>

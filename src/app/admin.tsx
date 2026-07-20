@@ -49,6 +49,7 @@ import * as Sentry from '@sentry/react-native';
 type AdminTab = 'overview' | 'schedule' | 'bookings' | 'pricing' | 'coaches' | 'rules' | 'users' | 'audit' | 'health';
 type AdminGroup = 'operations' | 'business' | 'people' | 'system';
 type RevenueRange = 'today' | 'week' | 'month' | 'all';
+type SaveAction = 'support' | 'rule' | 'pricing' | 'hours' | 'coach';
 
 const ADMIN_TABS: AdminTabDef<AdminTab>[] = [
   { key: 'overview', label: 'Overview', Icon: LayoutGrid },
@@ -81,6 +82,7 @@ const REQUIRED_MIGRATIONS = [
   { key: 'security-boundary.sql', label: 'Security boundary' },
   { key: 'post-lockdown-integrity.sql', label: 'Transactional integrity' },
   { key: 'venue-location.sql', label: 'Venue location' },
+  { key: 'remediation-2026-07.sql', label: 'July 2026 remediation' },
 ];
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -145,11 +147,13 @@ export default function AdminScreen() {
   const [date, setDate] = useState<Date>(venueToday());
   const [time, setTime] = useState('12:00');
   const [duration, setDuration] = useState(1);
+  const [blockDuration, setBlockDuration] = useState(1);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [blocking, setBlocking] = useState(false);
   const [bookingCoach, setBookingCoach] = useState(false);
+  const [savingAction, setSavingAction] = useState<SaveAction | null>(null);
   const mfaReady = useRequireAdminMfa();
 
   // Coaching-session booking (admin books a coach into the selected slot).
@@ -227,11 +231,15 @@ export default function AdminScreen() {
   }
 
   const onSaveSupport = async () => {
+    if (savingAction) return;
+    setSavingAction('support');
     setSupportErr(null);
     setSupportOk(null);
-    const res = await setSupportPhone(pSupport);
-    if (!res.ok) return setSupportErr(res.error ?? 'Could not update the support number.');
-    setSupportOk('Support number updated. Users see this when they cancel.');
+    try {
+      const res = await setSupportPhone(pSupport);
+      if (!res.ok) return setSupportErr(res.error ?? 'Could not update the support number.');
+      setSupportOk('Support number updated. Users see this when they cancel.');
+    } finally { setSavingAction(null); }
   };
 
   // Court rules form (add / edit)
@@ -258,13 +266,17 @@ export default function AdminScreen() {
   };
 
   const onSaveRule = async () => {
+    if (savingAction) return;
+    setSavingAction('rule');
     setRuleErr(null);
     setRuleOk(null);
     const payload = { title: rTitle, content: rContent };
-    const res = editingRuleId ? await updateRule(editingRuleId, payload) : await addRule(payload);
-    if (!res.ok) return setRuleErr(res.error ?? 'Could not save rule.');
-    setRuleOk(editingRuleId ? 'Rule updated.' : 'Rule added.');
-    resetRuleForm();
+    try {
+      const res = editingRuleId ? await updateRule(editingRuleId, payload) : await addRule(payload);
+      if (!res.ok) return setRuleErr(res.error ?? 'Could not save rule.');
+      setRuleOk(editingRuleId ? 'Rule updated.' : 'Rule added.');
+      resetRuleForm();
+    } finally { setSavingAction(null); }
   };
 
   const sortedRules = [...courtRules].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -302,8 +314,11 @@ export default function AdminScreen() {
   }
 
   const onSavePricing = async () => {
+    if (savingAction) return;
+    setSavingAction('pricing');
     setPriceErr(null);
     setPriceOk(null);
+    try {
     const res = await updatePricing({
       basketball: Number(pBasket) || 0,
       basketballPeak: Number(pBasketPeak) || 0,
@@ -327,12 +342,15 @@ export default function AdminScreen() {
     });
     if (!perksRes.ok) return setPriceErr(perksRes.error ?? 'Could not update tier rewards.');
     setPriceOk('Pricing and loyalty settings updated.');
+    } finally { setSavingAction(null); }
   };
 
   const onSaveHours = async () => {
+    if (savingAction) return;
+    setSavingAction('hours');
     setHoursErr(null);
     setHoursOk(null);
-    for (const h of hoursDraft) {
+    try { for (const h of hoursDraft) {
       if (!h.isClosed && (!isValidOperatingTime(h.openTime, false) || !isValidOperatingTime(h.closeTime, true))) {
         return setHoursErr('Use 24-hour HH:mm times. Only closing time may be 24:00.');
       }
@@ -343,6 +361,7 @@ export default function AdminScreen() {
     const res = await updateOperatingHours(hoursDraft);
     if (!res.ok) return setHoursErr(res.error ?? 'Could not update operating hours.');
     setHoursOk('Operating hours updated.');
+    } finally { setSavingAction(null); }
   };
 
   const toggleSport = (s: SportType) =>
@@ -371,6 +390,8 @@ export default function AdminScreen() {
   };
 
   const onSaveCoach = async () => {
+    if (savingAction) return;
+    setSavingAction('coach');
     setCoachError(null);
     setCoachOk(null);
     const payload = {
@@ -380,13 +401,14 @@ export default function AdminScreen() {
       pricePerHour: Number(cPrice) || 0,
       phone: cPhone,
     };
-    const res = editingId ? await updateCoach(editingId, payload) : await addCoach(payload);
+    try { const res = editingId ? await updateCoach(editingId, payload) : await addCoach(payload);
     if (!res.ok) {
       setCoachError(res.error ?? 'Could not save coach.');
       return;
     }
     setCoachOk(editingId ? `${cName.trim()} updated.` : `${cName.trim()} added.`);
     resetCoachForm();
+    } finally { setSavingAction(null); }
   };
 
   const unavailable = useMemo(
@@ -581,12 +603,8 @@ export default function AdminScreen() {
     if (blocking) return; // guard against a double-tap creating two identical blocks
     setError(null);
     setOkMsg(null);
-    if (!fitsVenueOperatingWindow(date, time, duration, adminDayHours)) {
-      setError(adminDayHours.isClosed ? 'The court is closed that day.' : 'That block is outside operating hours.');
-      return;
-    }
     setBlocking(true);
-    const res = await addCourtBlock({ date, startTime: time, durationHours: duration, reason }).finally(() => setBlocking(false));
+    const res = await addCourtBlock({ date, startTime: time, durationHours: blockDuration, reason }).finally(() => setBlocking(false));
     if (!res.ok) {
       setError(res.error ?? 'Could not block this time.');
       return;
@@ -922,6 +940,8 @@ export default function AdminScreen() {
             icon={<Phone size={18} color="#05060f" />}
             colors={[ADMIN, '#ffb020']}
             onPress={onSaveSupport}
+            loading={savingAction === 'support'}
+            disabled={savingAction !== null}
           />
         </Animated.View>
         )}
@@ -1045,6 +1065,8 @@ export default function AdminScreen() {
               icon={<Clock size={18} color="#05060f" />}
               colors={[ADMIN, '#ffb020']}
               onPress={onSaveHours}
+              loading={savingAction === 'hours'}
+              disabled={savingAction !== null}
             />
           </View>
 
@@ -1057,6 +1079,8 @@ export default function AdminScreen() {
             icon={<DollarSign size={18} color="#05060f" />}
             colors={[ADMIN, '#ffb020']}
             onPress={onSavePricing}
+            loading={savingAction === 'pricing'}
+            disabled={savingAction !== null}
           />
         </Animated.View>
         )}
@@ -1076,7 +1100,11 @@ export default function AdminScreen() {
             <TimeSlotPicker value={time} onChange={setTime} accent={ADMIN} unavailable={unavailable} slots={adminDaySlots} />
           )}
           <SubLabel text="Duration" />
-          <DurationSelector value={duration} onChange={setDuration} accent={ADMIN} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {[0.5, 1, 2, 3, 6, 12, 24].map((hours) => (
+              <SelectChip key={hours} label={hours < 1 ? '30 min' : `${hours}h`} selected={blockDuration === hours} onPress={() => setBlockDuration(hours)} />
+            ))}
+          </View>
           <SubLabel text="Reason" />
           <TextInput
             value={reason}
@@ -1133,8 +1161,11 @@ export default function AdminScreen() {
               }}
             >
               <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                Uses the date, start and duration selected above. Main Court is reserved automatically.
+                Uses the date and start selected above. Main Court is reserved automatically.
               </Text>
+
+              <SubLabel text="Session duration" />
+              <DurationSelector value={duration} onChange={setDuration} accent={COLORS.coach} />
 
               <SubLabel text="Coach" />
               {coaches.length === 0 ? (
@@ -1395,6 +1426,8 @@ export default function AdminScreen() {
             icon={<UserPlus size={18} color="#05060f" />}
             colors={[ADMIN, '#ffb020']}
             onPress={onSaveCoach}
+            loading={savingAction === 'coach'}
+            disabled={savingAction !== null}
           />
         </Animated.View>
 
@@ -1450,6 +1483,8 @@ export default function AdminScreen() {
             icon={<Plus size={18} color="#05060f" />}
             colors={[ADMIN, '#ffb020']}
             onPress={onSaveRule}
+            loading={savingAction === 'rule'}
+            disabled={savingAction !== null}
           />
         </Animated.View>
 

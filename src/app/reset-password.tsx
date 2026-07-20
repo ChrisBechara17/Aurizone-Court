@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -106,18 +106,27 @@ export default function ResetPassword() {
     if (pw !== confirm) return setError('Passwords do not match.');
 
     setSaving(true);
+    let passwordChanged = false;
+    try {
     const updated = await authService.updatePassword(pw);
     if (!updated.ok) {
-      setSaving(false);
       return setError(updated.error ?? 'Could not update password. Your reset code may have expired.');
     }
+    passwordChanged = true;
     // Signed in via the recovery session — sync the app and go home.
     const user = await authService.getCurrentUser();
+    if (!user) throw new Error('Profile unavailable after password update.');
     useAppStore.setState({ user });
     await useAppStore.getState().registerPushToken();
     await useAppStore.getState().refresh();
-    setSaving(false);
     router.replace('/(tabs)/home');
+    } catch {
+      if (passwordChanged) {
+        await authService.signOut().catch(() => undefined);
+        Alert.alert('Password updated', 'Your password was changed. Please sign in again.');
+        router.replace('/auth');
+      } else setError('Could not update password. Please try again.');
+    } finally { setSaving(false); }
   };
 
   return (
