@@ -13,6 +13,7 @@ import { TimeSlotPicker } from '@/components/TimeSlotPicker';
 import { COLORS } from '@/constants/colors';
 import { useAppStore } from '@/store/useAppStore';
 import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
+import { AdminMfaGateLoading } from '@/components/admin/AdminMfaGateLoading';
 import { fmtDateLong, fmtTime, formatDuration, isPeakStart, parseISO, venueCalendarDate, venueDateKeyForInstant, venueTimeForInstant } from '@/utils/dateUtils';
 
 /**
@@ -38,7 +39,7 @@ export default function AdminBookingScreen() {
   const [rescheduleTime, setRescheduleTime] = useState('12:00');
   const [rescheduleDuration, setRescheduleDuration] = useState(1);
   const [overrideHours, setOverrideHours] = useState(false);
-  const mfaReady = useRequireAdminMfa();
+  const mfaState = useRequireAdminMfa();
 
   const booking = bookings.find((b) => b.id === id);
 
@@ -55,7 +56,7 @@ export default function AdminBookingScreen() {
   }
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
-  if (!mfaReady) return null; // useRequireAdminMfa redirects to /admin-mfa
+  if (mfaState !== 'verified') return <AdminMfaGateLoading />;
   if (!booking) return <Redirect href="/admin" />;
 
   const bookedBy = users.find((u) => u.id === booking.userId);

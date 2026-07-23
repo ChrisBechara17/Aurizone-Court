@@ -70,7 +70,7 @@ begin
      or p_end_time<=p_start_time
      or p_end_time-p_start_time<interval '30 minutes'
      or p_end_time-p_start_time>interval '24 hours' then
-    raise exception 'INVALID_DURATION: Court blocks must be between 30 minutes and 24 hours.' using errcode='check_violation';
+    raise exception 'INVALID_BLOCK_DURATION: Court blocks must be between 30 minutes and 24 hours.' using errcode='check_violation';
   end if;
 end; $$;
 revoke all on function public.assert_court_block_contract(timestamptz,timestamptz) from public,anon,authenticated;
@@ -327,7 +327,9 @@ begin
       values(v_booking.user_id,'Booking cancelled','Your booking was cancelled: '||v_reason,'booking_cancelled','booking',v_booking.id)
       returning id into v_notification_id;
   elsif p_action = 'complete' then
-    if v_booking.status in ('cancelled','completed') then raise exception 'INVALID_STATE: Booking cannot be completed.' using errcode = 'check_violation'; end if;
+    if v_booking.status <> 'confirmed' or v_booking.start_time > now() then
+      raise exception 'INVALID_STATE: Only a started confirmed booking can be completed.' using errcode = 'check_violation';
+    end if;
     if v_booking.no_show then
       select coalesce(sum(points),0)::integer into v_adjustment from public.loyalty_transactions where booking_id=v_booking.id and type='no_show_adjustment';
       select coalesce(sum(points),0)::integer into v_penalty from public.loyalty_transactions where booking_id=v_booking.id and type='no_show_penalty';
@@ -344,7 +346,9 @@ begin
       returning id into v_notification_id;
   elsif p_action = 'no_show' then
     v_reason := btrim(p_payload ->> 'reason');
-    if v_booking.status <> 'confirmed' or v_booking.no_show or v_reason = '' then raise exception 'INVALID_STATE: Booking cannot be marked no-show.' using errcode = 'check_violation'; end if;
+    if v_booking.status <> 'confirmed' or v_booking.start_time > now() or v_booking.no_show or v_reason = '' then
+      raise exception 'INVALID_STATE: Only a started confirmed booking can be marked no-show.' using errcode = 'check_violation';
+    end if;
     select coalesce(sum(points),0)::integer into v_total from public.loyalty_transactions where booking_id=v_booking.id;
     update public.bookings set no_show=true,no_show_reason=v_reason where id=v_booking.id returning * into v_booking;
     if v_total <> 0 then insert into public.loyalty_transactions(user_id,booking_id,type,points,description,created_by_admin_id)
@@ -449,6 +453,15 @@ begin
       raise exception 'INVALID_PAYLOAD: Block fields are missing or malformed.' using errcode='22023';
     end;
     perform public.assert_court_block_contract(v_start,v_end);
+    if exists(
+      select 1 from public.bookings b
+      where b.court_id=v_main_court_id
+        and b.uses_main_court
+        and b.status='confirmed'
+        and tstzrange(b.start_time,b.end_time,'[)') && tstzrange(v_start,v_end,'[)')
+    ) then
+      raise exception 'BOOKING_CONFLICT: Court block overlaps a confirmed booking.' using errcode='exclusion_violation';
+    end if;
     insert into public.court_blocks(court_id,start_time,end_time,reason) values(v_main_court_id,v_start,v_end,btrim(p_payload->>'reason')) returning * into v_block;
     v_response:=jsonb_build_object('block',to_jsonb(v_block));
     insert into public.admin_audit_logs(admin_user_id,action,entity_type,entity_id,summary,metadata) values(p_actor_user_id,'court_block.create','court_block',v_block.id,'Created court block',p_payload);
@@ -477,8 +490,8 @@ begin
       begin
         insert into public.bookings(id,user_id,booking_type,sport_type,court_id,coach_id,uses_main_court,court_half,start_time,end_time,duration_minutes,total_price,status,is_recurring,recurrence_group_id,is_free_reward,ball_machine,no_show)
         values((v_item->>'id')::uuid,v_user_id,'coach',(v_item->>'sport_type')::public.sport_type,
-          case when coalesce((v_item->>'uses_main_court')::boolean,true) then v_main_court_id else null end,
-          (v_item->>'coach_id')::uuid,coalesce((v_item->>'uses_main_court')::boolean,true),'full',v_start,v_end,v_duration,coalesce((v_item->>'total_price')::numeric,0),'confirmed',coalesce((v_item->>'is_recurring')::boolean,false),nullif(v_item->>'recurrence_group_id','')::uuid,false,false,false) returning * into v_row;
+          v_main_court_id,
+          (v_item->>'coach_id')::uuid,true,'full',v_start,v_end,v_duration,coalesce((v_item->>'total_price')::numeric,0),'confirmed',coalesce((v_item->>'is_recurring')::boolean,false),nullif(v_item->>'recurrence_group_id','')::uuid,false,false,false) returning * into v_row;
         v_created:=v_created||jsonb_build_array(to_jsonb(v_row));
       exception when exclusion_violation or unique_violation then
         v_skipped:=v_skipped||jsonb_build_array(jsonb_build_object(
@@ -532,9 +545,31 @@ begin
   elsif p_action='rule_update' then v_id:=(p_payload->>'id')::uuid; update public.court_rules set title=coalesce(p_payload->>'title',title),content=coalesce(p_payload->>'content',content),sort_order=coalesce((p_payload->>'sort_order')::integer,sort_order) where id=v_id; if not found then raise exception 'NOT_FOUND: Court rule not found.' using errcode='no_data_found'; end if;
   elsif p_action='rule_remove' then v_id:=(p_payload->>'id')::uuid; delete from public.court_rules where id=v_id; if not found then raise exception 'NOT_FOUND: Court rule not found.' using errcode='no_data_found'; end if;
   elsif p_action='operating_hours' then
-    insert into public.operating_hours(day_of_week,open_time,close_time,is_closed,updated_at)
-      select (x->>'day_of_week')::integer,(x->>'open_time')::time,(x->>'close_time')::time,(x->>'is_closed')::boolean,now() from jsonb_array_elements(p_payload->'rows') x
-      on conflict(day_of_week) do update set open_time=excluded.open_time,close_time=excluded.close_time,is_closed=excluded.is_closed,updated_at=now();
+    begin
+      if jsonb_typeof(p_payload->'rows') is distinct from 'array'
+         or jsonb_array_length(p_payload->'rows') <> 7
+         or (select count(distinct (x->>'day_of_week')::integer) from jsonb_array_elements(p_payload->'rows') x) <> 7
+         or exists(
+           select 1 from jsonb_array_elements(p_payload->'rows') x
+           where jsonb_typeof(x) <> 'object'
+              or jsonb_typeof(x->'day_of_week') <> 'number'
+              or jsonb_typeof(x->'open_time') <> 'string'
+              or jsonb_typeof(x->'close_time') <> 'string'
+              or jsonb_typeof(x->'is_closed') <> 'boolean'
+              or (x->>'day_of_week')::integer not between 0 and 6
+              or (
+                not (x->>'is_closed')::boolean
+                and (x->>'close_time')::time <= (x->>'open_time')::time
+              )
+         ) then
+        raise exception 'INVALID_OPERATING_HOURS: Supply one valid row per weekday with close after open.' using errcode='check_violation';
+      end if;
+      insert into public.operating_hours(day_of_week,open_time,close_time,is_closed,updated_at)
+        select (x->>'day_of_week')::integer,(x->>'open_time')::time,(x->>'close_time')::time,(x->>'is_closed')::boolean,now() from jsonb_array_elements(p_payload->'rows') x
+        on conflict(day_of_week) do update set open_time=excluded.open_time,close_time=excluded.close_time,is_closed=excluded.is_closed,updated_at=now();
+    exception when data_exception then
+      raise exception 'INVALID_OPERATING_HOURS: Supply one valid row per weekday with close after open.' using errcode='check_violation';
+    end;
   elsif p_action='pricing' then
     insert into public.sport_prices(sport_type,price_per_hour,peak_price_per_hour) values
       ('basketball',(p_payload->>'basketball')::numeric,(p_payload->>'basketball_peak')::numeric),

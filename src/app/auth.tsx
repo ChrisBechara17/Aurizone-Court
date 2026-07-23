@@ -1,6 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Eye, EyeOff } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -20,14 +30,37 @@ interface FormValues {
 
 export default function Auth() {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
   const signUp = useAppStore((s) => s.signUp);
   const login = useAppStore((s) => s.login);
   const resetPassword = useAppStore((s) => s.resetPassword);
 
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [sendingReset, setSendingReset] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const shown = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+
+  const revealPasswordFields = () => {
+    if (Platform.OS !== 'android') return;
+    // Edge-to-edge Android windows may not shrink their React view when the
+    // keyboard opens. The measured bottom padding below creates enough scroll
+    // range, and this delayed scroll runs after that padding is laid out.
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 350);
+  };
 
   const {
     control,
@@ -38,7 +71,6 @@ export default function Auth() {
 
   const onSubmit = async (values: FormValues) => {
     setError(null);
-    setNotice(null);
 
     if (!values.email.includes('@')) return setError('Enter a valid email address.');
     if (values.password.length < 6) return setError('Password must be at least 6 characters.');
@@ -70,7 +102,6 @@ export default function Auth() {
   const onForgotPassword = async () => {
     if (sendingReset) return;
     setError(null);
-    setNotice(null);
     const email = getValues('email');
     if (!email.includes('@')) return setError('Enter your email above first, then tap “Forgot password”.');
     setSendingReset(true);
@@ -83,7 +114,15 @@ export default function Auth() {
     <ScreenContainer>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 60, gap: 22 }}
+          ref={scrollRef}
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'center',
+            padding: 24,
+            paddingBottom: Platform.OS === 'android' && keyboardHeight > 0 ? keyboardHeight + 40 : 60,
+            gap: 22,
+          }}
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -108,7 +147,14 @@ export default function Auth() {
                   <Field label="Full Name" placeholder="e.g. Alex Rivera" control={control} name="name" autoCapitalize="words" />
                 ) : null}
                 <Field label="Email" placeholder="you@email.com" control={control} name="email" keyboardType="email-address" />
-                <Field label="Password" placeholder="At least 6 characters" control={control} name="password" isPassword />
+                <Field
+                  label="Password"
+                  placeholder="At least 6 characters"
+                  control={control}
+                  name="password"
+                  isPassword
+                  onFocus={revealPasswordFields}
+                />
                 {mode === 'signup' ? (
                   <Field
                     label="Confirm Password"
@@ -116,6 +162,7 @@ export default function Auth() {
                     control={control}
                     name="confirmPassword"
                     isPassword
+                    onFocus={revealPasswordFields}
                   />
                 ) : null}
 
@@ -133,10 +180,6 @@ export default function Auth() {
                 ) : null}
 
                 <ErrorBanner message={error} />
-                {notice ? (
-                  <Text style={{ color: COLORS.success, fontSize: 13, textAlign: 'center' }}>{notice}</Text>
-                ) : null}
-
                 <PrimaryGradientButton
                   label={mode === 'signup' ? 'Create Account' : 'Sign In'}
                   onPress={handleSubmit(onSubmit)}
@@ -150,7 +193,6 @@ export default function Auth() {
             onPress={() => {
               setMode(mode === 'signup' ? 'login' : 'signup');
               setError(null);
-              setNotice(null);
             }}
           >
             <Text style={{ color: COLORS.textMuted, fontSize: 14, textAlign: 'center' }}>
@@ -173,6 +215,7 @@ function Field({
   name,
   keyboardType,
   isPassword,
+  onFocus,
   autoCapitalize = 'none',
 }: {
   label: string;
@@ -181,6 +224,7 @@ function Field({
   name: keyof FormValues;
   keyboardType?: 'default' | 'email-address';
   isPassword?: boolean;
+  onFocus?: () => void;
   autoCapitalize?: 'none' | 'words';
 }) {
   const [visible, setVisible] = useState(false);
@@ -208,13 +252,22 @@ function Field({
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
+              onFocus={onFocus}
               placeholder={placeholder}
               placeholderTextColor={COLORS.textFaint}
               keyboardType={keyboardType}
               secureTextEntry={secure}
               autoCapitalize={autoCapitalize}
               autoCorrect={false}
-              style={{ flex: 1, paddingVertical: 14, color: COLORS.text, fontSize: 15 }}
+              style={{
+                flex: 1,
+                minHeight: 52,
+                paddingVertical: 0,
+                color: COLORS.text,
+                fontSize: 15,
+                lineHeight: 20,
+                textAlignVertical: 'center',
+              }}
             />
           )}
         />

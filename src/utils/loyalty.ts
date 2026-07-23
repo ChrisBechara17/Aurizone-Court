@@ -113,9 +113,9 @@ export function computeLoyalty(
 
   // --- Free-session rewards --------------------------------------------
   // Count only bookings an admin actually marked completed (completedAt set),
-  // NOT the client-derived "completed" status that supabaseService applies to any
-  // confirmed booking whose time has passed. The server's free_reward_balance()
-  // counts real completions only, so deriving from status here would show the
+  // not the presentation-only "awaiting_review" state used for past confirmed
+  // bookings. The server's free_reward_balance() counts real completions only,
+  // so deriving from elapsed time here would show the
   // "use a free session" toggle for a reward the server rejects/charges.
   const now = Date.now();
   const goodBookings = bookings.filter(

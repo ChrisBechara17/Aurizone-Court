@@ -46,7 +46,12 @@ Deno.serve((req) => run(req, false, async (ctx) => {
     p_bookings: rows,
   });
   if (error) rpcError(error);
+  const result = z.object({
+    bookings: z.array(z.record(z.string(), z.unknown())),
+    replayed: z.boolean().optional(),
+  }).passthrough().safeParse(data);
+  if (!result.success) rpcError({ message: 'Malformed booking-create RPC result.' });
   // The authoritative AFTER INSERT trigger in operations-upgrades.sql creates
   // booking_base loyalty exactly once. Do not duplicate that transaction here.
-  return data?.bookings ?? [];
+  return result.data.bookings;
 }));

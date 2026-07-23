@@ -2,7 +2,7 @@ import { Text, View } from 'react-native';
 import { format, parseISO } from 'date-fns';
 import { Booking, Coach, CourtBlock } from '@/models';
 import { COLORS, sportAccent, sportLabel } from '@/constants/colors';
-import { OPEN_HOUR, CLOSE_HOUR, fmtTime, sameVenueDate, timeToMinutes, venueMinutesForInstant } from '@/utils/dateUtils';
+import { OPEN_HOUR, CLOSE_HOUR, fmtTime, sameVenueDate, timeToMinutes, venueMinutesForInstant, tryVenueOperatingWindow } from '@/utils/dateUtils';
 
 const HOUR_HEIGHT = 64;
 const GUTTER = 56;
@@ -24,6 +24,12 @@ export function CourtTimeline({ date, bookings, courtBlocks, coaches, openTime, 
   const openHour = openTime ? timeToMinutes(openTime) / 60 : OPEN_HOUR;
   const closeHour = closeTime ? timeToMinutes(closeTime) / 60 : CLOSE_HOUR;
   const totalHours = closeHour - openHour;
+  const dayWindow = tryVenueOperatingWindow(date, {
+    dayOfWeek: date.getDay(),
+    openTime: openTime ?? `${String(OPEN_HOUR).padStart(2, '0')}:00`,
+    closeTime: closeTime ?? `${String(CLOSE_HOUR).padStart(2, '0')}:00`,
+    isClosed: false,
+  });
   // Confirmed/completed court-occupying bookings on this calendar day.
   const occupants = bookings.filter(
     (b) =>
@@ -32,7 +38,13 @@ export function CourtTimeline({ date, bookings, courtBlocks, coaches, openTime, 
       sameVenueDate(b.startTime, date),
   );
 
-  const blocks = courtBlocks.filter((blk) => sameVenueDate(blk.startTime, date));
+  const blocks = dayWindow
+    ? courtBlocks.filter(
+        (blk) =>
+          parseISO(blk.startTime).getTime() < dayWindow.close.getTime() &&
+          parseISO(blk.endTime).getTime() > dayWindow.open.getTime(),
+      )
+    : [];
 
   const minutesFromOpen = (iso: string) => {
     return venueMinutesForInstant(iso) - openHour * 60;
@@ -82,8 +94,10 @@ export function CourtTimeline({ date, bookings, courtBlocks, coaches, openTime, 
 
         {/* Blocked slots (maintenance/admin) */}
         {blocks.map((blk) => {
-          const top = (minutesFromOpen(blk.startTime) / 60) * HOUR_HEIGHT;
-          const dur = (parseISO(blk.endTime).getTime() - parseISO(blk.startTime).getTime()) / 60000;
+          const clippedStart = Math.max(parseISO(blk.startTime).getTime(), dayWindow?.open.getTime() ?? 0);
+          const clippedEnd = Math.min(parseISO(blk.endTime).getTime(), dayWindow?.close.getTime() ?? 0);
+          const top = ((clippedStart - (dayWindow?.open.getTime() ?? clippedStart)) / 3_600_000) * HOUR_HEIGHT;
+          const dur = (clippedEnd - clippedStart) / 60000;
           const height = (dur / 60) * HOUR_HEIGHT;
           return (
             <View

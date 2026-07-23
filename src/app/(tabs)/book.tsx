@@ -20,7 +20,6 @@ import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { CreateResult } from '@/services/bookingService';
 import {
   calculateEndTime,
-  combineDateAndTime,
   fitsVenueOperatingWindow,
   fmtDate,
   fmtTime,
@@ -29,6 +28,7 @@ import {
   operatingHoursForDate,
   timeSlotsForOperatingHours,
   venueDateKey,
+  tryCombineDateAndTime,
   venueToday,
 } from '@/utils/dateUtils';
 import { courtRate } from '@/constants/prices';
@@ -93,7 +93,10 @@ export default function BookScreen() {
   const daySlots = useMemo(() => {
     const slots = timeSlotsForOperatingHours(dayHours);
     if (venueDateKey(date) !== venueDateKey(venueToday())) return slots;
-    return slots.filter((slot) => combineDateAndTime(date, slot).getTime() > nowTick);
+    return slots.filter((slot) => {
+      const instant = tryCombineDateAndTime(date, slot);
+      return instant !== null && instant.getTime() > nowTick;
+    });
   }, [dayHours, date, nowTick]);
 
   useFocusEffect(useCallback(() => {
@@ -117,7 +120,8 @@ export default function BookScreen() {
   const accent = sportAccent(sport);
   // Peak pricing is decided by the START time (≥ 4 PM = peak). The server
   // re-computes this authoritatively; here it drives the live estimate.
-  const peak = selectedTime ? isPeakStart(combineDateAndTime(date, selectedTime)) : false;
+  const selectedInstant = selectedTime ? tryCombineDateAndTime(date, selectedTime) : null;
+  const peak = selectedInstant ? isPeakStart(selectedInstant) : false;
   const price = courtRate(pricing, sport, half, peak);
 
   // Compute unavailable start times for the chosen date + duration.
@@ -125,8 +129,10 @@ export default function BookScreen() {
   const unavailable = useMemo(() => {
     return daySlots.filter((slot) => {
       if (!fitsVenueOperatingWindow(date, slot, duration, dayHours)) return true;
-      const start = combineDateAndTime(date, slot).toISOString();
-      const end = calculateEndTime(combineDateAndTime(date, slot), duration).toISOString();
+      const instant = tryCombineDateAndTime(date, slot);
+      if (!instant) return true;
+      const start = instant.toISOString();
+      const end = calculateEndTime(instant, duration).toISOString();
       if (half) {
         return availableHalfSide(start, end, occupancy, courtBlocks) === null;
       }
@@ -138,7 +144,7 @@ export default function BookScreen() {
     });
   }, [date, duration, occupancy, courtBlocks, half, dayHours, daySlots]);
 
-  const start = selectedTime ? combineDateAndTime(date, selectedTime) : null;
+  const start = selectedInstant;
   const end = start ? calculateEndTime(start, duration) : null;
   const machineCost = machineActive ? pricing.ballMachineRate * duration : 0;
   // Free reward covers the court; the ball-machine add-on is still charged.

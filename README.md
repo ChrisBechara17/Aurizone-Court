@@ -69,6 +69,10 @@ RLS policies, and transactional RPCs remain authoritative.
 - Expo Notifications and server-scheduled booking reminders
 - Sentry crash reporting
 
+Local development requires Node.js 20+, npm, and Deno 2.x. Deno checks the
+trusted Supabase Edge Function boundary and runs its focused contract tests;
+install it before running `npm run check`.
+
 ## Repository layout
 
 ```text

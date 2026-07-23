@@ -96,7 +96,11 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
     - Pins the canonical Main Court, closes remaining reference-data access,
       and installs transactional push-token ownership RPCs.
 
-21. `peak-pricing.sql` (MUST be last)
+21. `regression-remediation-2026-07.sql`
+    - Corrective transactional upgrade for projects that ran an earlier copy
+      of the July remediation. Safe to apply after the canonical remediation.
+
+22. `peak-pricing.sql` (MUST be last)
     - Adds peak-price support for bookings starting from 4 PM Asia/Beirut.
     - Redefines `compute_booking_price()` as the single authoritative version,
       folding in peak selection, the half-court rate, span-based hours, and the
@@ -125,7 +129,8 @@ to publish the RizeON Maps destination, then run
 `anonymous-reference-lockdown.sql` to apply the intentional anonymous API
 change.
 
-Re-run `server-booking-reminders.sql`, then apply `remediation-2026-07.sql`.
+Re-run `server-booking-reminders.sql`, then apply `remediation-2026-07.sql`
+and `regression-remediation-2026-07.sql`.
 Redeploy `device-token`, `admin-bookings`, and the other secure functions after
 the SQL succeeds. Finally re-run `security-lockdown.sql`.
 

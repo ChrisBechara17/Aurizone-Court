@@ -11,6 +11,21 @@ import { authService } from '@/services/authService';
 import { useAppStore } from '@/store/useAppStore';
 
 type Enrollment = { id: string; totp: { secret: string; uri: string } };
+const MFA_TIMEOUT_MS = 10_000;
+
+async function withMfaTimeout<T>(work: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Admin verification timed out. Check your connection and retry.')), MFA_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 export default function AdminMfaScreen() {
   const router = useRouter();
@@ -27,7 +42,7 @@ export default function AdminMfaScreen() {
     setError(null);
     setFactorId(null);
     try {
-      const status = await authService.getMfaStatus();
+      const status = await withMfaTimeout(authService.getMfaStatus());
       if (status.currentLevel === 'aal2') return router.replace('/admin');
       const existing = status.verifiedFactors[0];
       if (existing) setFactorId(existing.id);
@@ -78,18 +93,18 @@ export default function AdminMfaScreen() {
             ) : null}
             <TextInput value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" placeholder="000000" placeholderTextColor={COLORS.textFaint} style={{ color: COLORS.text, backgroundColor: COLORS.chip, borderWidth: 1, borderColor: COLORS.cardBorder, borderRadius: 8, padding: 14, textAlign: 'center', fontSize: 24, letterSpacing: 8 }} />
             <ErrorBanner message={error} />
-            {error && !factorId ? (
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+              {error ? (
                 <Pressable onPress={() => void loadStatus()} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', padding: 10 }}>
                   <RefreshCw size={16} color={COLORS.neon} />
                   <Text style={{ color: COLORS.neon, fontWeight: '800' }}>Retry</Text>
                 </Pressable>
-                <Pressable onPress={() => router.replace('/(tabs)/profile')} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', padding: 10 }}>
-                  <ArrowLeft size={16} color={COLORS.textMuted} />
-                  <Text style={{ color: COLORS.textMuted, fontWeight: '800' }}>Back to Profile</Text>
-                </Pressable>
-              </View>
-            ) : null}
+              ) : null}
+              <Pressable onPress={() => router.replace('/(tabs)/profile')} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', padding: 10 }}>
+                <ArrowLeft size={16} color={COLORS.textMuted} />
+                <Text style={{ color: COLORS.textMuted, fontWeight: '800' }}>Back to Profile</Text>
+              </Pressable>
+            </View>
             <PrimaryGradientButton label="Verify Admin" onPress={verify} loading={loading} disabled={code.length !== 6 || !factorId} />
           </View>
         </GlassCard>

@@ -15,6 +15,7 @@ import { computeLoyalty, computeLoyaltyFromTransactions } from '@/utils/loyalty'
 import { computeStanding } from '@/utils/accountStanding';
 import { bookingsFor } from '@/utils/adminUsers';
 import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
+import { AdminMfaGateLoading } from '@/components/admin/AdminMfaGateLoading';
 import { parseISO } from 'date-fns';
 
 export default function AdminUserScreen() {
@@ -32,7 +33,7 @@ export default function AdminUserScreen() {
   const [noteErr, setNoteErr] = useState<string | null>(null);
   const [sendingNotification, setSendingNotification] = useState(false);
   const [noteOk, setNoteOk] = useState<string | null>(null);
-  const mfaReady = useRequireAdminMfa();
+  const mfaState = useRequireAdminMfa();
 
   const target = users.find((u) => u.id === id);
 
@@ -47,7 +48,7 @@ export default function AdminUserScreen() {
   );
 
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
-  if (!mfaReady) return null; // useRequireAdminMfa redirects to /admin-mfa
+  if (mfaState !== 'verified') return <AdminMfaGateLoading />;
   if (!target) return <Redirect href="/admin-users" />;
 
   const userTransactions = loyaltyTransactions.filter((tx) => tx.userId === target.id);

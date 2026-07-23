@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "strict": true
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-explicit-any"]
+    }
+  },
+  "tasks": {
+    "check": "deno check _shared/security.ts _shared/contracts.ts booking-create/index.ts admin-bookings/index.ts admin-management/index.ts admin-notifications/index.ts device-token/index.ts booking-reminders/index.ts && deno test tests"
+  }
+}

@@ -8,6 +8,7 @@ import { BookingCard } from '@/components/BookingCard';
 import { COLORS, sportLabel } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { fmtDateLong, fmtTime, formatDuration } from '@/utils/dateUtils';
+import { bookingDisplayState } from '@/utils/bookingLifecycle';
 
 export default function BookingDetailScreen() {
   useThemeName();
@@ -50,7 +51,7 @@ export default function BookingDetailScreen() {
     ...(booking.bookingType === 'coach' ? [{ label: 'Coach', value: coach?.name ?? 'Coach' }] : []),
     ...(booking.ballMachine ? [{ label: 'Ball machine', value: 'Included' }] : []),
     ...(booking.isFreeReward ? [{ label: 'Reward', value: 'Free session used' }] : []),
-    { label: 'Status', value: booking.noShow ? 'No-show' : booking.status },
+    { label: 'Status', value: bookingDisplayState(booking).replace('_', ' ') },
     ...(booking.cancelReason ? [{ label: 'Cancellation reason', value: booking.cancelReason }] : []),
     ...(booking.noShowReason ? [{ label: 'No-show reason', value: booking.noShowReason }] : []),
   ];

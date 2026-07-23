@@ -1,5 +1,14 @@
 import { z } from 'npm:zod@4';
 import { isoDate, limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
+import { shouldDispatchMutationPush } from '../_shared/contracts.ts';
+
+type BookingRpcResult = {
+  replayed?: boolean;
+  notification_id?: string | null;
+  block?: Record<string, unknown>;
+  bookings?: Record<string, unknown>[];
+  booking?: Record<string, unknown>;
+};
 
 const body = z.discriminatedUnion('action', [
   z.object({ requestId: uuid, action: z.literal('cancel'), bookingId: uuid, reason: z.string().trim().min(1).max(500) }).strict(),
@@ -10,7 +19,7 @@ const body = z.discriminatedUnion('action', [
   z.object({ requestId: uuid, action: z.literal('block_remove'), blockId: uuid }).strict(),
   z.object({ requestId: uuid, action: z.literal('coach_create'), bookings: z.array(z.object({
     id: uuid, userId: uuid, sportType: z.enum(['basketball', 'tennis']), courtId: uuid.nullable().optional(), coachId: uuid,
-    usesMainCourt: z.boolean(), startTime: isoDate, endTime: isoDate, durationMinutes: z.number().int().min(30).max(180),
+    usesMainCourt: z.boolean().optional(), startTime: isoDate, endTime: isoDate, durationMinutes: z.number().int().min(30).max(180),
     isRecurring: z.boolean(), recurrenceGroupId: uuid.nullable(), totalPrice: z.number().nonnegative(),
   }).strict()).min(1).max(6) }).strict(),
 ]);
@@ -39,7 +48,7 @@ Deno.serve((req) => run(req, true, async (ctx) => {
 
   const scheduleAction = input.action === 'block_create' || input.action === 'block_remove' || input.action === 'coach_create';
   const payload = input.action === 'coach_create'
-    ? { bookings: input.bookings.map((b) => ({ ...b, user_id: b.userId, sport_type: b.sportType, coach_id: b.coachId, uses_main_court: b.usesMainCourt, start_time: b.startTime, end_time: b.endTime, duration_minutes: b.durationMinutes, total_price: b.totalPrice, is_recurring: b.isRecurring, recurrence_group_id: b.recurrenceGroupId })) }
+    ? { bookings: input.bookings.map((b) => ({ ...b, user_id: b.userId, sport_type: b.sportType, coach_id: b.coachId, uses_main_court: true, start_time: b.startTime, end_time: b.endTime, duration_minutes: b.durationMinutes, total_price: b.totalPrice, is_recurring: b.isRecurring, recurrence_group_id: b.recurrenceGroupId })) }
     : input.action === 'block_create'
       ? { court_id: input.courtId, start_time: input.startTime, end_time: input.endTime, reason: input.reason }
       : input.action === 'block_remove'
@@ -51,11 +60,13 @@ Deno.serve((req) => run(req, true, async (ctx) => {
     p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_action: input.action, p_payload: payload,
   });
   if (error) rpcError(error);
+  const result = data as BookingRpcResult | null;
+  if (!result) rpcError({ message: 'Malformed booking RPC result.' });
   // Skip the push when the RPC replayed a cached receipt (idempotent retry):
   // the DB row already existed, so re-sending would double-notify the user.
-  if (!data?.replayed) await sendNotificationPush(ctx, data?.notification_id);
-  if (input.action === 'block_create') return data.block;
+  if (shouldDispatchMutationPush(result)) await sendNotificationPush(ctx, result.notification_id);
+  if (input.action === 'block_create') return result.block;
   if (input.action === 'block_remove') return null;
-  if (input.action === 'coach_create') return data.bookings ?? [];
-  return data.booking ?? null;
+  if (input.action === 'coach_create') return result.bookings ?? [];
+  return result.booking ?? null;
 }));

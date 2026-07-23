@@ -28,10 +28,12 @@ import {
   fmtDate,
   fmtTime,
   isSameDay,
+  intervalOverlapsVenueDate,
   operatingHoursForDate,
   sameVenueDate,
   startOfDay,
   timeSlotsForOperatingHours,
+  tryCombineDateAndTime,
   venueToday,
   venueCalendarDate,
   venueDateKeyForInstant,
@@ -43,7 +45,9 @@ import { computeStanding } from '@/utils/accountStanding';
 import { shareCsv } from '@/utils/csvExport';
 import { bookingsFor } from '@/utils/adminUsers';
 import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
+import { AdminMfaGateLoading } from '@/components/admin/AdminMfaGateLoading';
 import { secureWritesEnabled } from '@/services/secureFunctionService';
+import { bookingDisplayState } from '@/utils/bookingLifecycle';
 import * as Sentry from '@sentry/react-native';
 
 type AdminTab = 'overview' | 'schedule' | 'bookings' | 'pricing' | 'coaches' | 'rules' | 'users' | 'audit' | 'health';
@@ -154,7 +158,7 @@ export default function AdminScreen() {
   const [blocking, setBlocking] = useState(false);
   const [bookingCoach, setBookingCoach] = useState(false);
   const [savingAction, setSavingAction] = useState<SaveAction | null>(null);
-  const mfaReady = useRequireAdminMfa();
+  const mfaState = useRequireAdminMfa();
 
   // Coaching-session booking (admin books a coach into the selected slot).
   const [showCoach, setShowCoach] = useState(false);
@@ -415,9 +419,9 @@ export default function AdminScreen() {
     () => {
       const hours = operatingHoursForDate(operatingHours, date);
       return timeSlotsForOperatingHours(hours).filter((slot) => {
-        if (!fitsVenueOperatingWindow(date, slot, duration, hours)) return true;
-        const start = combineDateAndTime(date, slot);
-        const end = calculateEndTime(start, duration);
+        const start = tryCombineDateAndTime(date, slot);
+        if (!start) return true;
+        const end = calculateEndTime(start, blockDuration);
         return hasCourtConflict(
           { startTime: start.toISOString(), endTime: end.toISOString(), usesMainCourt: true },
           occupancy,
@@ -425,7 +429,7 @@ export default function AdminScreen() {
         );
       });
     },
-    [date, duration, occupancy, courtBlocks, operatingHours],
+    [date, blockDuration, occupancy, courtBlocks, operatingHours],
   );
 
   const adminDayHours = operatingHoursForDate(operatingHours, date);
@@ -449,7 +453,10 @@ export default function AdminScreen() {
       // eslint-disable-next-line react-hooks/purity -- current-time read to classify upcoming vs past; re-reads each render as intended
       const isUpcoming = b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now();
       if (bookingStatusFilter === 'upcoming' && !isUpcoming) return false;
-      if (bookingStatusFilter === 'completed' && b.status !== 'completed') return false;
+      if (
+        bookingStatusFilter === 'completed' &&
+        !['completed', 'awaiting_review'].includes(bookingDisplayState(b))
+      ) return false;
       if (bookingStatusFilter === 'cancelled' && b.status !== 'cancelled') return false;
       if (bookingStatusFilter === 'no_show' && !b.noShow) return false;
       if (bookingTypeFilter !== 'all' && b.bookingType !== bookingTypeFilter) return false;
@@ -493,7 +500,7 @@ export default function AdminScreen() {
   // useMemos above would change the hook count when isAdmin flips while the
   // screen is mounted, violating the Rules of Hooks and crashing the app.
   if (!user?.isAdmin) return <Redirect href="/(tabs)/profile" />;
-  if (!mfaReady) return null;
+  if (mfaState !== 'verified') return <AdminMfaGateLoading />;
 
   const upcomingCount = bookings.filter(
     // eslint-disable-next-line react-hooks/purity -- current-time read to count upcoming bookings; re-reads each render as intended
@@ -603,6 +610,10 @@ export default function AdminScreen() {
     if (blocking) return; // guard against a double-tap creating two identical blocks
     setError(null);
     setOkMsg(null);
+    if (!tryCombineDateAndTime(date, time)) {
+      setError('That local start time does not exist. Choose another time.');
+      return;
+    }
     setBlocking(true);
     const res = await addCourtBlock({ date, startTime: time, durationHours: blockDuration, reason }).finally(() => setBlocking(false));
     if (!res.ok) {
@@ -1671,7 +1682,7 @@ export default function AdminScreen() {
               <HealthRow label="Operating hours" value={operatingHours.length === 7 ? '7 days loaded' : `${operatingHours.length} days`} good={operatingHours.length === 7} />
               <HealthRow label="Push support" value={pushStatus.token ? 'Token registered' : pushStatus.reason} good={pushStatus.supported && !!pushStatus.token} />
               <HealthRow label="Secure writes" value={secureWritesEnabled ? 'Edge Functions' : 'Compatibility mode'} good={secureWritesEnabled} />
-              <HealthRow label="Admin MFA" value="AAL2 verified" good={mfaReady} />
+              <HealthRow label="Admin MFA" value="AAL2 verified" good={mfaState === 'verified'} />
               <HealthRow label="Security events" value={securityEvents.length ? `${securityEvents.length} recent` : 'None'} good />
               <HealthRow
                 label="Crash monitoring"
@@ -1930,14 +1941,14 @@ function scheduleItemsForDay(
         color,
         time: `${fmtTime(b.startTime)} - ${fmtTime(b.endTime)}`,
         title: isCoach ? 'Coach + court' : sportLabel(b.sportType),
-        subtitle: `${b.status}${b.noShow ? ' · no-show' : ''}`,
+        subtitle: `${bookingDisplayState(b)}${b.noShow ? ' · no-show' : ''}`,
         start: parseISO(b.startTime).getTime(),
       };
     });
 
   const blockItems = filters.blocks
     ? blocks
-        .filter((b) => sameVenueDate(b.startTime, day))
+        .filter((b) => intervalOverlapsVenueDate(b.startTime, b.endTime, day))
         .map((b) => ({
           id: b.id,
           kind: 'block' as const,

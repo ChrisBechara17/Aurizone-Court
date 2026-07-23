@@ -29,6 +29,7 @@ for (const path of sqlFiles(join(root, 'supabase'))) {
   for (const match of scannable.matchAll(/\braise\b[\s\S]*?;/gi)) {
     const statement = match[0];
     if (/^raise\s*;$/i.test(statement.trim())) continue; // PL/pgSQL rethrow
+    if (/^raise\s+(?:notice|info|log|warning|debug)\b/i.test(statement.trim())) continue;
     const literal = /^raise\s+(?:exception\s+)?'((?:[^']|'')*)'/i.exec(statement.trim());
     const line = scannable.slice(0, match.index).split(/\r?\n/).length;
     if (!literal) {

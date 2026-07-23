@@ -7,6 +7,7 @@ import { hasStarted } from '@/utils/accountStanding';
 import { GlassCard } from './GlassCard';
 import { StatusBadge } from './StatusBadge';
 import { useAppStore } from '@/store/useAppStore';
+import { bookingDisplayState } from '@/utils/bookingLifecycle';
 
 interface Props {
   booking: Booking;
@@ -30,6 +31,7 @@ export function BookingCard({ booking, onCancel, cancelNote, onToggleNoShow, can
   const coachName = (id: string | null) => coaches.find((c) => c.id === id)?.name ?? 'Coach';
   const accent = sportAccent(booking.sportType);
   const isCoach = booking.bookingType === 'coach';
+  const displayState = bookingDisplayState(booking);
   const canCancel = booking.status === 'confirmed' && !!onCancel;
   const showNoShowToggle = !!onToggleNoShow && booking.status !== 'cancelled' && hasStarted(booking);
   const durH = booking.durationMinutes / 60;
@@ -73,7 +75,7 @@ export function BookingCard({ booking, onCancel, cancelNote, onToggleNoShow, can
               <Text style={{ color: COLORS.danger, fontWeight: '800', fontSize: 11 }}>No-show</Text>
             </View>
           ) : null}
-          <StatusBadge status={booking.status} />
+          <StatusBadge status={displayState} />
         </View>
       </View>
 

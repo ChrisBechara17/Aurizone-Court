@@ -27,7 +27,18 @@ export function venueDateKeyForInstant(instant: Date | string): string {
 export function venueCalendarDate(dateKey: string): Date {
   const match = DATE_KEY_RE.exec(dateKey);
   if (!match) throw new RangeError('Invalid venue date.');
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    throw new RangeError('Invalid venue date.');
+  }
+  return date;
 }
 
 export function venueToday(): Date {
@@ -56,6 +67,16 @@ export function venueWallTimeToInstant(dateKey: string, time: string): Date {
 /** Combine a DateSelector calendar date with an "HH:mm" Beirut time. */
 export function combineDateAndTime(date: Date, time: string): Date {
   return venueWallTimeToInstant(venueDateKey(date), time);
+}
+
+/** Presentation-safe wall-time resolver. Submission paths should continue to
+ * use combineDateAndTime so invalid user selections are rejected explicitly. */
+export function tryCombineDateAndTime(date: Date, time: string): Date | null {
+  try {
+    return combineDateAndTime(date, time);
+  } catch {
+    return null;
+  }
 }
 
 /** End time = start + duration (hours). Returns a Date. */
@@ -220,6 +241,19 @@ export function sameVenueDate(instant: Date | string, calendarDate: Date): boole
   return venueDateKeyForInstant(instant) === venueDateKey(calendarDate);
 }
 
+export function intervalOverlapsVenueDate(
+  start: Date | string,
+  end: Date | string,
+  calendarDate: Date,
+): boolean {
+  const startInstant = typeof start === 'string' ? parseISO(start) : start;
+  const endInstant = typeof end === 'string' ? parseISO(end) : end;
+  if (!isValid(startInstant) || !isValid(endInstant) || endInstant <= startInstant) return false;
+  const key = venueDateKey(calendarDate);
+  const lastIncludedInstant = new Date(endInstant.getTime() - 1);
+  return venueDateKeyForInstant(startInstant) <= key && venueDateKeyForInstant(lastIncludedInstant) >= key;
+}
+
 export function venueMinutesForInstant(instant: Date | string): number {
   return beirutWallParts(typeof instant === 'string' ? parseISO(instant) : instant).minutes;
 }
@@ -236,6 +270,17 @@ export function venueOperatingWindow(date: Date, hours: OperatingHour): { open: 
     ? addMinutes(venueWallTimeToInstant(dateKey, '23:00'), 60)
     : venueWallTimeToInstant(dateKey, hours.closeTime);
   return { open, close };
+}
+
+export function tryVenueOperatingWindow(
+  date: Date,
+  hours: OperatingHour,
+): { open: Date; close: Date } | null {
+  try {
+    return venueOperatingWindow(date, hours);
+  } catch {
+    return null;
+  }
 }
 
 export function fitsVenueOperatingWindow(
@@ -279,7 +324,8 @@ export function fitsOperatingHoursAt(
 }
 
 export function venueCalendarDateFromParam(value: string | string[] | undefined): Date {
-  const raw = Array.isArray(value) ? value[0] : value;
+  if (Array.isArray(value)) return venueToday();
+  const raw = value;
   if (!raw) return venueToday();
   try {
     if (DATE_KEY_RE.test(raw)) return venueCalendarDate(raw);

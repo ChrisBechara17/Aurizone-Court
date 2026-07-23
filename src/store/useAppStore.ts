@@ -92,7 +92,7 @@ interface AppState {
   loyaltyTransactions: LoyaltyTransaction[];
   schemaMigrations: SchemaMigration[];
   securityEvents: SecurityEvent[];
-  pushStatus: { supported: boolean; reason: string; token: string | null };
+  pushStatus: { supported: boolean; reason: string; token: string | null; errorCode?: string };
   lastRefreshedAt: string | null;
   refreshError: string | null;
   remindersEnabled: boolean;
@@ -159,7 +159,9 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => {
-  let bookingRevision = 0;
+  let dataRevision = 0;
+  let reconciliationScheduled = false;
+  let registeringPush = false;
   /** Schedule reminders for new bookings and persist their notification ids. */
   const attachReminders = async (created: Booking[]): Promise<Booking[]> => {
     if (secureWritesEnabled) return created;
@@ -303,7 +305,7 @@ export const useAppStore = create<AppState>((set, get) => {
     /** Load all shared data from Supabase. Resilient: one failing query does not
      *  discard the others (e.g. a missing view won't wipe the loaded court). */
     refresh: async () => {
-      const refreshBookingRevision = bookingRevision;
+      const refreshDataRevision = dataRevision;
       const refreshUserId = get().user?.id ?? null;
       const isAdmin = !!get().user?.isAdmin;
       const [courtR, coachesR, blocksR, bookingsR, occR, usersR, pricingR, loyaltyR, tierPerksR, supportR, venueR, rulesR, auditR, notificationsR, loyaltyTxR, hoursR, migrationsR, securityR] = await Promise.allSettled([
@@ -331,10 +333,8 @@ export const useAppStore = create<AppState>((set, get) => {
       if (courtR.status === 'fulfilled' && courtR.value) patch.court = courtR.value;
       if (coachesR.status === 'fulfilled') patch.coaches = coachesR.value;
       if (blocksR.status === 'fulfilled') patch.courtBlocks = blocksR.value;
-      if (bookingRevision === refreshBookingRevision) {
-        if (bookingsR.status === 'fulfilled') patch.bookings = bookingsR.value;
-        if (occR.status === 'fulfilled') patch.occupancy = occR.value;
-      }
+      if (bookingsR.status === 'fulfilled') patch.bookings = bookingsR.value;
+      if (occR.status === 'fulfilled') patch.occupancy = occR.value;
       if (usersR.status === 'fulfilled') patch.users = usersR.value;
       if (pricingR.status === 'fulfilled') patch.pricing = pricingR.value;
       if (loyaltyR.status === 'fulfilled') patch.loyaltySettings = loyaltyR.value;
@@ -356,8 +356,15 @@ export const useAppStore = create<AppState>((set, get) => {
       // A detached refresh may outlive logout/account switching. Never let a
       // previous session repopulate the next account's private state.
       if ((get().user?.id ?? null) !== refreshUserId) return;
-      set(patch);
-      if (bookingRevision !== refreshBookingRevision) setTimeout(() => void get().refresh(), 0);
+      if (dataRevision === refreshDataRevision) {
+        set(patch);
+      } else if (!reconciliationScheduled) {
+        reconciliationScheduled = true;
+        setTimeout(() => {
+          reconciliationScheduled = false;
+          void get().refresh();
+        }, 0);
+      }
     },
 
     completeOnboarding: async () => {
@@ -406,25 +413,59 @@ export const useAppStore = create<AppState>((set, get) => {
     resetPassword: async (email) => authService.resetPassword(email),
 
     registerPushToken: async () => {
+      if (registeringPush) return;
       const user = get().user;
       const base = getPushSupportStatus();
       if (!user) {
         set({ pushStatus: { ...base, token: null } });
         return;
       }
-      const res = await registerForPushToken();
-      set({ pushStatus: { supported: base.supported, reason: res.reason, token: res.token } });
-      if (!res.token) return;
+      registeringPush = true;
       try {
+        const installationId = await storageService.getInstallationId();
+        const res = await registerForPushToken();
+        set({ pushStatus: { supported: base.supported, reason: res.reason, token: res.token } });
+        if (!res.token) return;
+        const cached = await storageService.getPushRegistration();
+        const remindersEnabled = get().remindersEnabled;
+        if (
+          cached &&
+          cached.userId === user.id &&
+          cached.token === res.token &&
+          cached.installationId === installationId &&
+          cached.remindersEnabled === remindersEnabled &&
+          Date.now() - cached.registeredAt < 24 * 60 * 60 * 1000
+        ) {
+          set({ pushStatus: { supported: true, reason: 'Registered', token: res.token } });
+          return;
+        }
         await supabaseService.upsertPushToken({
           userId: user.id,
           token: res.token,
           platform: 'native',
           deviceId: undefined,
-          bookingRemindersEnabled: get().remindersEnabled,
+          installationId,
+          bookingRemindersEnabled: remindersEnabled,
         });
-      } catch {
-        // Optional DB upgrade may not be installed yet; warning is logged in the service.
+        await storageService.setPushRegistration({
+          userId: user.id,
+          token: res.token,
+          installationId,
+          remindersEnabled,
+          registeredAt: Date.now(),
+        });
+        set({ pushStatus: { supported: true, reason: 'Registered', token: res.token } });
+      } catch (error: any) {
+        set({
+          pushStatus: {
+            supported: base.supported,
+            reason: error?.message ?? 'Could not register this device for push notifications.',
+            token: get().pushStatus.token,
+            errorCode: error?.code,
+          },
+        });
+      } finally {
+        registeringPush = false;
       }
     },
 
@@ -448,14 +489,20 @@ export const useAppStore = create<AppState>((set, get) => {
       // sign in on this device doesn't receive notifications for someone else's
       // bookings (privacy + correctness).
       await cancelAllReminders();
-      const pushToken = get().pushStatus.token;
+      const cachedPush = await storageService.getPushRegistration();
+      let pushToken = get().pushStatus.token ?? cachedPush?.token ?? null;
+      if (!pushToken) {
+        pushToken = (await registerForPushToken()).token;
+      }
       if (pushToken) {
         try {
-          await supabaseService.deactivatePushToken(pushToken);
+          const installationId = await storageService.getInstallationId();
+          await supabaseService.deactivatePushToken(pushToken, installationId);
         } catch {
           // Push cleanup is best-effort; sign-out must still succeed.
         }
       }
+      await storageService.clearPushRegistration();
       await authService.signOut();
       set({
         user: null,
@@ -549,7 +596,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
 
       const withIds = await attachReminders(saved);
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: mergeById(get().bookings, withIds),
         occupancy: mergeById(get().occupancy, withIds),
@@ -654,7 +701,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
       // Schedule reminders + persist their notification ids, same as bookCourt.
       const stored = await attachReminders(saved.length > 0 ? saved : created);
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: mergeById(get().bookings, stored),
         // A court-using coach session occupies the Main Court, so add it to the
@@ -703,7 +750,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return { ok: false, error: e?.message ?? 'Could not cancel booking.' };
       }
       if (!secureWritesEnabled) void cancelReminder(target.notificationId);
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'cancelled', cancelledAt, cancelReason: reason.trim() || null } : b,
@@ -728,13 +775,16 @@ export const useAppStore = create<AppState>((set, get) => {
       const target = get().bookings.find((b) => b.id === id);
       if (!target) return { ok: false, error: 'Booking not found.' };
       if (target.status !== 'confirmed') return { ok: false, error: 'Only confirmed bookings can be completed.' };
+      if (new Date(target.startTime).getTime() > Date.now()) {
+        return { ok: false, error: 'A booking cannot be completed before it starts.' };
+      }
       const completedAt = new Date().toISOString();
       try {
         await supabaseService.updateBooking(id, { status: 'completed', completedAt, noShow: false, noShowReason: null });
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark booking completed.' };
       }
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: get().bookings.map((b) =>
           b.id === id ? { ...b, status: 'completed', completedAt, noShow: false, noShowReason: null } : b,
@@ -752,12 +802,15 @@ export const useAppStore = create<AppState>((set, get) => {
       const cleanReason = reason.trim();
       if (!cleanReason) return { ok: false, error: 'A no-show reason is required.' };
       if (target.status !== 'confirmed') return { ok: false, error: 'Only confirmed bookings can be marked no-show.' };
+      if (new Date(target.startTime).getTime() > Date.now()) {
+        return { ok: false, error: 'A booking cannot be marked no-show before it starts.' };
+      }
       try {
         await supabaseService.updateBooking(id, { noShow: true, noShowReason: cleanReason });
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not mark no-show.' };
       }
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: get().bookings.map((b) => (b.id === id ? { ...b, noShow: true, noShowReason: cleanReason } : b)),
       });
@@ -861,7 +914,7 @@ export const useAppStore = create<AppState>((set, get) => {
         }
       }
 
-      bookingRevision += 1;
+      dataRevision += 1;
       set({
         bookings: get().bookings.map((b) => (b.id === id ? { ...updated, notificationId } : b)),
         occupancy: get().occupancy.map((b) => (b.id === id ? { ...b, startTime, endTime, durationMinutes } : b)),
@@ -893,6 +946,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return;
       }
       const readAt = new Date().toISOString();
+      dataRevision += 1;
       set({ notifications: get().notifications.map((n) => (n.id === id ? { ...n, readAt } : n)) });
     },
 
@@ -903,6 +957,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return;
       }
       const readAt = new Date().toISOString();
+      dataRevision += 1;
       set({ notifications: get().notifications.map((n) => (n.readAt ? n : { ...n, readAt })) });
     },
 
@@ -921,6 +976,7 @@ export const useAppStore = create<AppState>((set, get) => {
           relatedEntityId: input.userId,
         });
         if (input.userId === get().user?.id) {
+          dataRevision += 1;
           set({ notifications: [notification, ...get().notifications] });
         }
         await audit('notification.create', 'notification', notification.id, `Sent notification: ${cleanTitle}`, { userId: input.userId });
@@ -976,6 +1032,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update pricing.' };
       }
+      dataRevision += 1;
       set({ pricing: clean });
       await audit('pricing.update', 'pricing', null, 'Updated court pricing.', clean as unknown as Record<string, unknown>);
       return { ok: true };
@@ -987,6 +1044,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update operating hours.' };
       }
+      dataRevision += 1;
       set({ operatingHours: input });
       await audit('operating_hours.update', 'operating_hours', null, 'Updated weekly operating hours.');
       return { ok: true };
@@ -1005,6 +1063,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update loyalty settings.' };
       }
+      dataRevision += 1;
       set({ loyaltySettings: clean });
       await audit('loyalty.settings.update', 'loyalty_settings', null, 'Updated loyalty point settings.', clean as unknown as Record<string, unknown>);
       return { ok: true };
@@ -1022,6 +1081,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update tier rewards.' };
       }
+      dataRevision += 1;
       set({ tierPerks: clean });
       await audit('loyalty.tier_rewards.update', 'tier_rewards', null, 'Updated loyalty tier rewards.', clean as unknown as Record<string, unknown>);
       return { ok: true };
@@ -1035,6 +1095,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update the support number.' };
       }
+      dataRevision += 1;
       set({ supportPhone: clean });
       await audit('support_phone.update', 'app_config', null, `Updated support phone to ${clean}.`);
       return { ok: true };
@@ -1042,7 +1103,12 @@ export const useAppStore = create<AppState>((set, get) => {
 
     addCourtBlock: async (input) => {
       const { court, bookings } = get();
-      const start = combineDateAndTime(input.date, input.startTime);
+      let start: Date;
+      try {
+        start = combineDateAndTime(input.date, input.startTime);
+      } catch {
+        return { ok: false, error: 'That local start time does not exist. Choose another time.' };
+      }
       const end = calculateEndTime(start, input.durationHours);
       const startIso = start.toISOString();
       const endIso = end.toISOString();
@@ -1064,6 +1130,7 @@ export const useAppStore = create<AppState>((set, get) => {
           endTime: endIso,
           reason: input.reason.trim() || 'Maintenance',
         });
+        dataRevision += 1;
         set({ courtBlocks: [...get().courtBlocks, block] });
         await audit('court_block.create', 'court_block', block.id, `Blocked court: ${block.reason}.`, {
           startTime: block.startTime,
@@ -1081,6 +1148,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not remove this block.' };
       }
+      dataRevision += 1;
       set({ courtBlocks: get().courtBlocks.filter((b) => b.id !== id) });
       await audit('court_block.remove', 'court_block', id, 'Removed court block.');
       return { ok: true };
@@ -1097,6 +1165,7 @@ export const useAppStore = create<AppState>((set, get) => {
           pricePerHour: Math.max(0, Math.round(input.pricePerHour)) || 0,
           phone: input.phone.trim(),
         });
+        dataRevision += 1;
         set({ coaches: [...get().coaches, coach] });
         await audit('coach.create', 'coach', coach.id, `Added coach ${coach.name}.`);
         return { ok: true };
@@ -1116,6 +1185,7 @@ export const useAppStore = create<AppState>((set, get) => {
           pricePerHour: Math.max(0, Math.round(input.pricePerHour)) || 0,
           phone: input.phone.trim(),
         });
+        dataRevision += 1;
         set({
           coaches: get().coaches.map((c) =>
             c.id === id
@@ -1143,6 +1213,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not remove this coach.' };
       }
+      dataRevision += 1;
       set({ coaches: get().coaches.filter((c) => c.id !== id) });
       await audit('coach.remove', 'coach', id, 'Removed coach.');
       return { ok: true };
@@ -1156,6 +1227,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const nextOrder = get().courtRules.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), -1) + 1;
       try {
         const rule = await supabaseService.insertCourtRule({ title, content, sortOrder: nextOrder });
+        dataRevision += 1;
         set({ courtRules: [...get().courtRules, rule] });
         await audit('rule.create', 'court_rule', rule.id, `Added rule: ${title}.`);
         return { ok: true };
@@ -1173,6 +1245,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not update rule.' };
       }
+      dataRevision += 1;
       set({ courtRules: get().courtRules.map((r) => (r.id === id ? { ...r, title, content } : r)) });
       await audit('rule.update', 'court_rule', id, `Updated rule: ${title}.`);
       return { ok: true };
@@ -1184,6 +1257,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (e: any) {
         return { ok: false, error: e?.message ?? 'Could not remove this rule.' };
       }
+      dataRevision += 1;
       set({ courtRules: get().courtRules.filter((r) => r.id !== id) });
       await audit('rule.remove', 'court_rule', id, 'Removed rule.');
       return { ok: true };
@@ -1206,6 +1280,7 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch {
         return;
       }
+      dataRevision += 1;
       set({
         courtRules: get().courtRules.map((r) =>
           r.id === a.id ? { ...r, sortOrder: bo } : r.id === b.id ? { ...r, sortOrder: ao } : r,

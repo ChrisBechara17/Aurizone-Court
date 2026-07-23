@@ -10,6 +10,7 @@ import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
 import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
+import { bookingDisplayState } from '@/utils/bookingLifecycle';
 
 type Filter = 'upcoming' | 'past' | 'cancelled';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -50,7 +51,7 @@ export default function BookingsScreen() {
         .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
     if (filter === 'past') {
       return sorted.filter(
-        (b) => b.status !== 'cancelled' && (b.status === 'completed' || b.noShow || parseISO(b.startTime).getTime() <= now),
+        (b) => ['awaiting_review', 'completed', 'no_show'].includes(bookingDisplayState(b, now)),
       );
     }
     return sorted.filter((b) => b.status === 'cancelled');

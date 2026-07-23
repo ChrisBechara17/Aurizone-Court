@@ -2,6 +2,8 @@ import { createCourtBooking } from '@/services/bookingService';
 import { computeLoyalty } from '@/utils/loyalty';
 import { venueCalendarDate } from '@/utils/dateUtils';
 import { Booking, Pricing } from '@/models';
+import { bookingDisplayState } from '@/utils/bookingLifecycle';
+import { computeStanding } from '@/utils/accountStanding';
 
 const pricing: Pricing = {
   basketball: 11, basketballPeak: 22, basketballHalf: 7, basketballHalfPeak: 14,
@@ -30,4 +32,18 @@ test('cancelled-after-completed bookings do not earn free progress', () => {
   rows[0] = booking({ id: 'cancelled', status: 'cancelled' });
   expect(computeLoyalty(rows).goodBookings).toBe(9);
   expect(computeLoyalty(rows).availableFree).toBe(0);
+});
+
+test('past confirmed rows remain authoritative and await admin review', () => {
+  const pastConfirmed = booking({ status: 'confirmed', completedAt: null });
+  expect(pastConfirmed.status).toBe('confirmed');
+  expect(bookingDisplayState(pastConfirmed, new Date('2026-01-02T00:00:00Z').getTime())).toBe('awaiting_review');
+  expect(computeLoyalty([pastConfirmed]).goodBookings).toBe(0);
+});
+
+test('completed sessions accrue progress and no-shows accrue strikes', () => {
+  const completed = booking({ id: 'completed' });
+  const noShow = booking({ id: 'no-show', status: 'confirmed', completedAt: null, noShow: true });
+  expect(computeLoyalty([completed, noShow]).goodBookings).toBe(1);
+  expect(computeStanding([completed, noShow]).strikes).toBe(1);
 });

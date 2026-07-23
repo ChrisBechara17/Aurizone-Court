@@ -1,20 +1,24 @@
 import { Text, View } from 'react-native';
-import { BookingStatus } from '@/models';
 import { COLORS } from '@/constants/colors';
+import { BookingDisplayState } from '@/utils/bookingLifecycle';
 
 // U1: build the label/color map at render time. Capturing COLORS at module load
 // froze the dark-theme values, so badges kept dark colors after a theme switch.
-const LABELS: Record<BookingStatus, string> = {
+const LABELS: Record<BookingDisplayState, string> = {
   confirmed: 'Confirmed',
+  awaiting_review: 'Awaiting review',
   cancelled: 'Cancelled',
   completed: 'Completed',
+  no_show: 'No-show',
 };
 
-export function StatusBadge({ status }: { status: BookingStatus }) {
-  const colorFor: Record<BookingStatus, string> = {
+export function StatusBadge({ status }: { status: BookingDisplayState }) {
+  const colorFor: Record<BookingDisplayState, string> = {
     confirmed: COLORS.success,
+    awaiting_review: COLORS.warning,
     cancelled: COLORS.danger,
     completed: COLORS.neon,
+    no_show: COLORS.danger,
   };
   const label = LABELS[status];
   const color = colorFor[status];

@@ -27,9 +27,10 @@ create table if not exists public.booking_reminder_deliveries (
   unique (booking_id, booking_start_time)
 );
 
-create index if not exists idx_booking_reminder_deliveries_due
+drop index if exists public.idx_booking_reminder_deliveries_due;
+create index idx_booking_reminder_deliveries_due
   on public.booking_reminder_deliveries (next_attempt_at, claimed_until)
-  where status in ('pending', 'processing', 'failed');
+  where status = 'pending';
 
 alter table public.booking_reminder_deliveries enable row level security;
 revoke all on public.booking_reminder_deliveries from anon, authenticated;
@@ -88,17 +89,12 @@ begin
     join public.bookings b
       on b.id = d.booking_id
      and b.start_time = d.booking_start_time
-    where d.status in ('pending', 'failed', 'processing')
-      and d.attempts < 3
+    where d.status = 'pending'
+      and d.attempts = 0
       and d.next_attempt_at <= now()
-      and (
-        d.status <> 'processing'
-        or d.claimed_until is null
-        or d.claimed_until <= now()
-      )
       and b.status = 'confirmed'
       and b.no_show = false
-      and b.start_time > now()
+      and b.start_time > now() + interval '45 minutes'
     order by b.start_time, d.created_at
     for update of d skip locked
     limit p_limit
@@ -115,7 +111,9 @@ begin
   select c.id, b.id, b.user_id, b.booking_type, b.sport_type, b.start_time
   from claimed c
   join public.bookings b on b.id = c.booking_id
-  where b.status = 'confirmed' and b.no_show = false and b.start_time > now();
+  where b.status = 'confirmed'
+    and b.no_show = false
+    and b.start_time > now() + interval '45 minutes';
 end;
 $$;
 
@@ -142,7 +140,6 @@ begin
       sent_at = case when p_status = 'sent' then now() else sent_at end,
       last_error = left(p_error, 1000),
       claimed_until = null,
-      next_attempt_at = case when p_status = 'failed' then now() + interval '2 minutes' else next_attempt_at end,
       updated_at = now()
   where id = p_delivery_id and status = 'processing';
 end;

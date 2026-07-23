@@ -4,6 +4,9 @@ import { limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
 const sport = z.enum(['basketball', 'tennis']);
 const openingTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm.');
 const closingTime = z.string().regex(/^(?:(?:[01]\d|2[0-3]):[0-5]\d|24:00)$/, 'Use HH:mm or 24:00.');
+const timeMinutes = (value: string) => value === '24:00'
+  ? 1440
+  : Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
 const body = z.discriminatedUnion('action', [
   z.object({ requestId: uuid, action: z.literal('coach_create'), name: z.string().trim().min(1).max(100), supportedSports: z.array(sport).min(1), bio: z.string().max(1000), pricePerHour: z.number().nonnegative(), phone: z.string().trim().min(1).max(50) }).strict(),
   z.object({ requestId: uuid, action: z.literal('coach_update'), id: uuid, name: z.string().trim().min(1).max(100), supportedSports: z.array(sport).min(1), bio: z.string().max(1000), pricePerHour: z.number().nonnegative(), phone: z.string().trim().min(1).max(50) }).strict(),
@@ -20,6 +23,18 @@ const body = z.discriminatedUnion('action', [
 Deno.serve((req) => run(req, true, async (ctx) => {
   await limit(ctx, 'admin-management', 120, 600);
   const input = await parse(req, body);
+  if (input.action === 'operating_hours') {
+    const days = new Set(input.rows.map((row) => row.dayOfWeek));
+    const invalidOrder = input.rows.some(
+      (row) => !row.isClosed && timeMinutes(row.closeTime) <= timeMinutes(row.openTime),
+    );
+    if (days.size !== 7 || invalidOrder) {
+      throw Object.assign(new Error('Operating hours are invalid.'), {
+        status: 400,
+        code: 'INVALID_OPERATING_HOURS',
+      });
+    }
+  }
   if (input.action === 'config_values') {
     const allowed = new Set([
       'tier_perks_bronze','tier_perks_silver','tier_perks_gold','tier_perks_platinum',
@@ -38,7 +53,9 @@ Deno.serve((req) => run(req, true, async (ctx) => {
   if (input.action === 'config_values') payload.values = input.values;
   const { data: result, error } = await ctx.admin.rpc('secure_admin_management_action', { p_actor_user_id: ctx.user.id, p_request_id: input.requestId, p_action: input.action, p_payload: payload });
   if (error) rpcError(error);
-  if (input.action === 'coach_create' && result?.id) { const q = await ctx.admin.from('coaches').select('*').eq('id', result.id).single(); if (q.error) rpcError(q.error); return q.data; }
-  if (input.action === 'rule_create' && result?.id) { const q = await ctx.admin.from('court_rules').select('*').eq('id', result.id).single(); if (q.error) rpcError(q.error); return q.data; }
-  return result;
+  const typedResult = result as { id?: string; replayed?: boolean } | null;
+  if (!typedResult) rpcError({ message: 'Malformed admin-management RPC result.' });
+  if (input.action === 'coach_create' && typedResult.id) { const q = await ctx.admin.from('coaches').select('*').eq('id', typedResult.id).single(); if (q.error) rpcError(q.error); return q.data; }
+  if (input.action === 'rule_create' && typedResult.id) { const q = await ctx.admin.from('court_rules').select('*').eq('id', typedResult.id).single(); if (q.error) rpcError(q.error); return q.data; }
+  return typedResult;
 }));

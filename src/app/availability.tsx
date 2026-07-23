@@ -9,7 +9,7 @@ import { CourtTimeline } from '@/components/CourtTimeline';
 import { DateSelector } from '@/components/DateSelector';
 import { PrimaryGradientButton } from '@/components/PrimaryGradientButton';
 import { COLORS } from '@/constants/colors';
-import { operatingHoursForDate, sameVenueDate, timeToMinutes, venueCalendarDateFromParam } from '@/utils/dateUtils';
+import { operatingHoursForDate, sameVenueDate, timeToMinutes, venueCalendarDateFromParam, tryVenueOperatingWindow } from '@/utils/dateUtils';
 import { useAppStore } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
 
@@ -23,17 +23,24 @@ export default function AvailabilityScreen() {
 
   const [date, setDate] = useState<Date>(() => venueCalendarDateFromParam(params.date));
 
-  const dayOccupants = occupancy.filter((b) => sameVenueDate(b.startTime, date));
-  const dayBlocks = courtBlocks.filter((b) => sameVenueDate(b.startTime, date));
   const dayHours = operatingHoursForDate(operatingHours, date);
+  const dayWindow = tryVenueOperatingWindow(date, dayHours);
+  const dayOccupants = occupancy.filter((b) => sameVenueDate(b.startTime, date));
+  const dayBlocks = dayWindow
+    ? courtBlocks.filter(
+        (b) =>
+          parseISO(b.startTime).getTime() < dayWindow.close.getTime() &&
+          parseISO(b.endTime).getTime() > dayWindow.open.getTime(),
+      )
+    : [];
   const totalHours = dayHours.isClosed ? 0 : (timeToMinutes(dayHours.closeTime) - timeToMinutes(dayHours.openTime)) / 60;
   // B3: count physical court-hours, not the sum of every booking's duration.
   // Two concurrent half-court bookings share the same wall-clock hour, so merge
   // overlapping intervals and measure their union instead of double-counting.
   const bookedHours = mergedHours(
     [...dayOccupants, ...dayBlocks].map((b) => ({
-      start: parseISO(b.startTime).getTime(),
-      end: parseISO(b.endTime).getTime(),
+      start: Math.max(parseISO(b.startTime).getTime(), dayWindow?.open.getTime() ?? Number.NEGATIVE_INFINITY),
+      end: Math.min(parseISO(b.endTime).getTime(), dayWindow?.close.getTime() ?? Number.POSITIVE_INFINITY),
     })),
   );
   const freeHours = Math.max(0, totalHours - bookedHours);

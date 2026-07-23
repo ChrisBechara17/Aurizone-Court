@@ -1,14 +1,23 @@
 import { z } from 'npm:zod@4';
 import { limit, parse, rpcError, run, uuid } from '../_shared/security.ts';
+import { shouldDispatchMutationPush } from '../_shared/contracts.ts';
 
 const body = z.object({ requestId: uuid, userId: uuid, title: z.string().trim().min(1).max(120), message: z.string().trim().min(1).max(1000) }).strict();
+type NotificationRpcResult = {
+  replayed?: boolean;
+  notification: Record<string, unknown>;
+};
 
 async function sendPush(tokens: string[], title: string, body: string) {
   for (let i = 0; i < tokens.length; i += 100) {
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(tokens.slice(i, i + 100).map((to) => ({ to, title, body, sound: 'default' }))),
-    });
+    try {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(tokens.slice(i, i + 100).map((to) => ({ to, title, body, sound: 'default' }))),
+      });
+    } catch {
+      // The committed in-app notification remains authoritative.
+    }
   }
 }
 
@@ -20,10 +29,12 @@ Deno.serve((req) => run(req, true, async (ctx) => {
     p_title: input.title, p_message: input.message,
   });
   if (error) rpcError(error);
+  const typedResult = result as NotificationRpcResult | null;
+  if (!typedResult?.notification) rpcError({ message: 'Malformed notification RPC result.' });
   // Don't re-push on an idempotent replay (see admin-bookings for rationale).
-  if (!result?.replayed) {
+  if (shouldDispatchMutationPush(typedResult)) {
     const { data: tokens } = await ctx.admin.from('push_tokens').select('token').eq('user_id', input.userId).eq('is_active', true);
-    if (tokens?.length) sendPush(tokens.map((row) => row.token), input.title, input.message).catch(() => undefined);
+    if (tokens?.length) await sendPush(tokens.map((row) => row.token), input.title, input.message);
   }
-  return result.notification;
+  return typedResult.notification;
 }));

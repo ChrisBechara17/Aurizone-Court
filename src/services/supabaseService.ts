@@ -93,11 +93,6 @@ async function fetchAllRows<T extends { id: string }>(
 // ---- Mappers --------------------------------------------------------------
 
 function toBooking(r: any): Booking {
-  // Derive "completed" for confirmed bookings whose time has passed.
-  let status: Booking['status'] = r.status;
-  if (status === 'confirmed' && new Date(r.end_time).getTime() < Date.now()) {
-    status = 'completed';
-  }
   return {
     id: r.id,
     userId: r.user_id,
@@ -111,7 +106,7 @@ function toBooking(r: any): Booking {
     endTime: r.end_time,
     durationMinutes: r.duration_minutes,
     totalPrice: Number(r.total_price),
-    status,
+    status: r.status,
     isRecurring: r.is_recurring,
     recurrenceGroupId: r.recurrence_group_id,
     isFreeReward: r.is_free_reward,
@@ -296,7 +291,12 @@ function toSecurityEvent(r: any): SecurityEvent {
 
 export const supabaseService = {
   async getMainCourt(): Promise<Court | null> {
-    const { data } = await supabase.from('courts').select('*').limit(1).maybeSingle();
+    const { data, error } = await supabase
+      .from('courts')
+      .select('*')
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) throw error;
     return data ? toCourt(data) : null;
   },
 
@@ -650,6 +650,7 @@ export const supabaseService = {
     token: string;
     platform?: string | null;
     deviceId?: string | null;
+    installationId: string;
     bookingRemindersEnabled?: boolean;
   }): Promise<PushToken | null> {
     if (secureWritesEnabled) {
@@ -658,6 +659,7 @@ export const supabaseService = {
         token: input.token,
         platform: input.platform ?? null,
         deviceId: input.deviceId ?? null,
+        installationId: input.installationId,
         bookingRemindersEnabled: input.bookingRemindersEnabled ?? true,
       });
       return row ? toPushToken(row) : null;
@@ -665,7 +667,7 @@ export const supabaseService = {
     const { data, error } = await supabase.rpc('register_push_token', {
       push_token: input.token,
       push_platform: input.platform ?? null,
-      push_device_id: input.deviceId ?? null,
+      push_device_id: input.installationId,
     });
     if (error) {
       warnMissingUpgrade(error, 'push-readiness.sql');
@@ -675,9 +677,9 @@ export const supabaseService = {
     return row ? toPushToken(row) : null;
   },
 
-  async deactivatePushToken(token: string): Promise<void> {
+  async deactivatePushToken(token: string, installationId: string): Promise<void> {
     if (secureWritesEnabled) {
-      await invokeSecure('device-token', { action: 'deactivate', token });
+      await invokeSecure('device-token', { action: 'deactivate', token, installationId });
       return;
     }
     const { error } = await supabase.rpc('deactivate_push_token', { push_token: token });

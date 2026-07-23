@@ -16,9 +16,11 @@ It leaves legacy application writes enabled for compatibility testing.
 
 For the July 2026 remediation, re-run the updated
 `post-lockdown-integrity.sql` and `server-booking-reminders.sql`, then apply
-`remediation-2026-07.sql`. The remediation intentionally fails if there is not
-exactly one row named `Main Court` or if existing operating hours are inverted;
-resolve those data issues from the verified backup before retrying.
+`remediation-2026-07.sql` and `regression-remediation-2026-07.sql`. The
+remediation selects Main Court deterministically and intentionally fails if it
+is missing, if canonical repointing would introduce a conflict, or if existing
+operating hours are inverted; resolve those data issues from the verified
+backup before retrying.
 Run `remediation-preflight.sql` first to perform those checks without changing
 data.
 

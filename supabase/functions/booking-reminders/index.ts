@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { reminderMayDispatch } from '../_shared/contracts.ts';
 
 type Reminder = {
   delivery_id: string;
@@ -67,6 +68,13 @@ Deno.serve(async (req) => {
       .eq('booking_reminders_enabled', true);
     if (result.error) {
       console.error('Failed to load reminder push tokens', result.error);
+      for (const reminder of reminders) {
+        await admin.rpc('complete_booking_reminder', {
+          p_delivery_id: reminder.delivery_id,
+          p_status: 'failed',
+          p_error: 'Push-token lookup failed after the delivery was claimed.',
+        });
+      }
       return Response.json({ error: 'The reminder job could not be completed.' }, { status: 500 });
     }
     tokens = (result.data ?? []) as PushToken[];
@@ -97,14 +105,16 @@ Deno.serve(async (req) => {
       !current.data ||
       current.data.status !== 'confirmed' ||
       current.data.no_show ||
-      current.data.start_time !== reminder.start_time
+      current.data.start_time !== reminder.start_time ||
+      !reminderMayDispatch(current.data.start_time)
     ) {
       await admin.rpc('complete_booking_reminder', {
         p_delivery_id: reminder.delivery_id,
-        p_status: 'no_tokens',
+        p_status: current.error ? 'failed' : 'no_tokens',
         p_error: 'Booking is no longer eligible for a reminder.',
       });
-      counts.noTokens += 1;
+      if (current.error) counts.failed += 1;
+      else counts.noTokens += 1;
       continue;
     }
 

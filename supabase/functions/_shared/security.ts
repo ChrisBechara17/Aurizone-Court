@@ -121,6 +121,8 @@ const PUBLIC_RPC_ERRORS: Record<string, { status: number; message: string }> = {
   INVALID_ACTION: { status: 400, message: 'That action is not supported.' },
   INVALID_COURT_HALF: { status: 400, message: 'The selected court half is invalid.' },
   INVALID_DURATION: { status: 400, message: 'Duration must be between 30 minutes and 3 hours and match the selected times.' },
+  INVALID_BLOCK_DURATION: { status: 400, message: 'Court blocks must be between 30 minutes and 24 hours.' },
+  INVALID_OPERATING_HOURS: { status: 400, message: 'Operating hours must contain each weekday once, with closing later than opening.' },
   INVALID_PAYLOAD: { status: 400, message: 'The request was invalid.' },
   INVALID_REFERENCE: { status: 400, message: 'The request referenced something that no longer exists.' },
   INVALID_STATE: { status: 409, message: 'This item changed and the action can no longer be applied.' },
