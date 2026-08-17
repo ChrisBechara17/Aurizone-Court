@@ -100,7 +100,21 @@ Before risky SQL changes, use `BACKUP_RECOVERY.md` to export and verify a backup
     - Corrective transactional upgrade for projects that ran an earlier copy
       of the July remediation. Safe to apply after the canonical remediation.
 
-22. `peak-pricing.sql` (MUST be last)
+22. `auto-complete-rewards.sql`
+    - Redefines `free_reward_balance()` so a finished booking counts toward a
+      free session without an admin marking it completed. Only a cancellation
+      or a no-show flag removes it. Must run after `post-lockdown-integrity.sql`,
+      which defines the earlier admin-review-only copy of that function.
+
+23. `loyalty-transition-points.sql`
+    - Adds the AFTER UPDATE trigger that writes the completion bonus, no-show
+      penalty, and cancellation reversal to the loyalty ledger. Without it those
+      rows are only written on the secure Edge Function path, so direct writes
+      award base points and nothing else. Defers to `secure_admin_booking_action`
+      for `service_role` mutations. Backfills the missed rows. Must run after
+      `operations-upgrades.sql` and `post-lockdown-integrity.sql`.
+
+24. `peak-pricing.sql` (MUST be last)
     - Adds peak-price support for bookings starting from 4 PM Asia/Beirut.
     - Redefines `compute_booking_price()` as the single authoritative version,
       folding in peak selection, the half-court rate, span-based hours, and the
@@ -129,8 +143,9 @@ to publish the RizeON Maps destination, then run
 `anonymous-reference-lockdown.sql` to apply the intentional anonymous API
 change.
 
-Re-run `server-booking-reminders.sql`, then apply `remediation-2026-07.sql`
-and `regression-remediation-2026-07.sql`.
+Re-run `server-booking-reminders.sql`, then apply `remediation-2026-07.sql`,
+`regression-remediation-2026-07.sql`, `auto-complete-rewards.sql`, and
+`loyalty-transition-points.sql`.
 Redeploy `device-token`, `admin-bookings`, and the other secure functions after
 the SQL succeeds. Finally re-run `security-lockdown.sql`.
 

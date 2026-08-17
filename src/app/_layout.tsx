@@ -1,7 +1,6 @@
 import '../global.css';
 
 import { useEffect } from 'react';
-import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationBar } from 'expo-navigation-bar';
@@ -10,20 +9,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { COLORS } from '@/constants/colors';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-
-const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
-Sentry.init({
-  dsn: sentryDsn,
-  enabled: !!sentryDsn,
-  debug: __DEV__,
-  // Development clients can outlive native dependency/config changes. Use the
-  // JS transport there for deterministic testing; release builds retain native
-  // crash capture for Android/iOS failures.
-  enableNative: !__DEV__,
-  environment: __DEV__ ? 'development' : 'production',
-  sendDefaultPii: false,
-  tracesSampleRate: 0.1,
-});
 
 function RootLayout() {
   const hydrate = useAppStore((s) => s.hydrate);
@@ -35,10 +20,6 @@ function RootLayout() {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
-
-  useEffect(() => {
-    Sentry.setUser(userId ? { id: userId } : null);
-  }, [userId]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navBg }}>
@@ -79,4 +60,4 @@ function RootLayout() {
   );
 }
 
-export default Sentry.wrap(RootLayout);
+export default RootLayout;

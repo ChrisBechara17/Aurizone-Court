@@ -202,18 +202,6 @@ export function operatingHoursForDate(hours: OperatingHour[], date: Date): Opera
   return hours.find((h) => h.dayOfWeek === dayOfWeek) ?? DEFAULT_OPERATING_HOURS[dayOfWeek];
 }
 
-/** Whether a booking starting at `time` for `durationHours` finishes by close (midnight). */
-export function fitsWithinHours(time: string, durationHours: number): boolean {
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + (m ?? 0) + durationHours * 60 <= CLOSE_HOUR * 60;
-}
-
-export function fitsWithinOperatingHours(time: string, durationHours: number, hours: OperatingHour): boolean {
-  if (hours.isClosed) return false;
-  const start = timeToMinutes(time);
-  return start >= timeToMinutes(hours.openTime) && start + durationHours * 60 <= timeToMinutes(hours.closeTime);
-}
-
 /**
  * Day-of-week (0=Sun..6=Sat) and minutes-since-midnight of an instant in the
  * venue timezone (Asia/Beirut). Operating-hours checks must use these: the

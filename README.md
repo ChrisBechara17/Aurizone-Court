@@ -67,7 +67,6 @@ RLS policies, and transactional RPCs remain authoritative.
 - React Hook Form and Zod
 - date-fns and date-fns-tz
 - Expo Notifications and server-scheduled booking reminders
-- Sentry crash reporting
 
 Local development requires Node.js 20+, npm, and Deno 2.x. Deno checks the
 trusted Supabase Edge Function boundary and runs its focused contract tests;
@@ -127,7 +126,6 @@ Populate `.env` with:
 EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 EXPO_PUBLIC_SECURE_WRITES=false
-EXPO_PUBLIC_SENTRY_DSN=
 ```
 
 Only the Supabase anonymous/public key belongs in the mobile app. Never place a

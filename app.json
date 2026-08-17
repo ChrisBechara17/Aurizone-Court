@@ -2,7 +2,7 @@
   "expo": {
     "name": "RizeON",
     "slug": "rizeon",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rizeon",
@@ -52,7 +52,15 @@
         }
       ],
       "expo-sharing",
-      "@sentry/react-native"
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

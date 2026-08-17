@@ -34,11 +34,56 @@ test('cancelled-after-completed bookings do not earn free progress', () => {
   expect(computeLoyalty(rows).availableFree).toBe(0);
 });
 
-test('past confirmed rows remain authoritative and await admin review', () => {
+test('a finished booking earns free progress without admin review', () => {
   const pastConfirmed = booking({ status: 'confirmed', completedAt: null });
+  // status stays authoritative; only the reward rule stopped requiring review.
   expect(pastConfirmed.status).toBe('confirmed');
   expect(bookingDisplayState(pastConfirmed, new Date('2026-01-02T00:00:00Z').getTime())).toBe('awaiting_review');
-  expect(computeLoyalty([pastConfirmed]).goodBookings).toBe(0);
+  expect(computeLoyalty([pastConfirmed]).goodBookings).toBe(1);
+});
+
+test('ten finished bookings earn a free session with no admin action', () => {
+  const rows = Array.from({ length: 10 }, (_, index) =>
+    booking({ id: String(index), status: 'confirmed', completedAt: null }),
+  );
+  expect(computeLoyalty(rows).goodBookings).toBe(10);
+  expect(computeLoyalty(rows).availableFree).toBe(1);
+});
+
+test('bookings that have not finished yet earn no free progress', () => {
+  const rows = Array.from({ length: 10 }, (_, index) =>
+    booking({
+      id: String(index),
+      status: 'confirmed',
+      completedAt: null,
+      startTime: '2030-01-01T10:00:00Z',
+      endTime: '2030-01-01T11:00:00Z',
+    }),
+  );
+  expect(computeLoyalty(rows).goodBookings).toBe(0);
+  expect(computeLoyalty(rows).availableFree).toBe(0);
+});
+
+test('admin no-show and cancellation still remove free progress', () => {
+  const rows = Array.from({ length: 10 }, (_, index) =>
+    booking({ id: String(index), status: 'confirmed', completedAt: null }),
+  );
+  rows[0] = booking({ id: 'no-show', status: 'confirmed', completedAt: null, noShow: true });
+  rows[1] = booking({ id: 'cancelled', status: 'cancelled', completedAt: null });
+  expect(computeLoyalty(rows).goodBookings).toBe(8);
+  expect(computeLoyalty(rows).availableFree).toBe(0);
+});
+
+test('redeemed free sessions never earn progress toward another reward', () => {
+  const paid = Array.from({ length: 10 }, (_, index) =>
+    booking({ id: String(index), status: 'confirmed', completedAt: null }),
+  );
+  const redeemed = booking({ id: 'free', status: 'confirmed', completedAt: null, isFreeReward: true });
+  const state = computeLoyalty([...paid, redeemed]);
+  expect(state.goodBookings).toBe(10); // the free session itself does not count
+  expect(state.earnedFree).toBe(1);
+  expect(state.redeemedFree).toBe(1);
+  expect(state.availableFree).toBe(0);
 });
 
 test('completed sessions accrue progress and no-shows accrue strikes', () => {

@@ -1,20 +1,4 @@
-import { Pricing, SportPrice, SportType } from '@/models';
-
-// Displayed prices only — payment processing is not enabled.
-export const SPORT_PRICES: SportPrice[] = [
-  { sportType: 'basketball', pricePerHour: 30 },
-  { sportType: 'tennis', pricePerHour: 20 },
-];
-
-export const getSportPrice = (sport: SportType): number =>
-  SPORT_PRICES.find((p) => p.sportType === sport)?.pricePerHour ?? 0;
-
-// Tennis-only add-on: automatic ball machine (ball launcher), charged per hour.
-export const BALL_MACHINE_RATE = 15;
-
-// Basketball half-court rate ($/hr). Fallback only — the live value is admin-set
-// (app_settings.basketball_half_rate) and the server recomputes total_price.
-export const BASKETBALL_HALF_RATE = 18;
+import { Pricing, SportType } from '@/models';
 
 // Fallback pricing (used before the live admin-set values load from Supabase).
 // Peak rates apply to bookings starting at/after 4 PM; ball machine is flat.

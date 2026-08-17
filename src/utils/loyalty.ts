@@ -64,8 +64,29 @@ export const POINTS_PER_BOOKING = DEFAULT_LOYALTY_SETTINGS.pointsPerBooking;
 export const COMPLETION_BONUS = DEFAULT_LOYALTY_SETTINGS.completionBonus;
 export const NO_SHOW_POINT_PENALTY = DEFAULT_LOYALTY_SETTINGS.noShowPenalty;
 
-/** Complete this many "good" (completed, non-cancelled) bookings to earn a free session. */
+/** Complete this many "good" (finished, non-cancelled) bookings to earn a free session. */
 export const GOOD_BOOKINGS_PER_FREE = 10;
+
+/**
+ * Does this booking count toward earning a free session?
+ *
+ * A session counts as soon as it is past its end time — an admin does not have
+ * to mark it completed first. Only an explicit admin action removes it: a
+ * cancellation, or a no-show flag. Free sessions are redemptions, so they never
+ * generate progress toward another one.
+ *
+ * Mirrors public.free_reward_balance() (supabase/auto-complete-rewards.sql).
+ * Keep the two in sync — the server decides whether a redemption is honoured,
+ * so a stricter client silently hides rewards the user has actually earned.
+ */
+export function countsTowardFreeSession(booking: Booking, now = Date.now()): boolean {
+  return (
+    (booking.status === 'confirmed' || booking.status === 'completed') &&
+    !booking.noShow &&
+    !booking.isFreeReward &&
+    new Date(booking.endTime).getTime() <= now
+  );
+}
 
 export interface LoyaltyState {
   points: number;
@@ -112,15 +133,8 @@ export function computeLoyalty(
     : 1;
 
   // --- Free-session rewards --------------------------------------------
-  // Count only bookings an admin actually marked completed (completedAt set),
-  // not the presentation-only "awaiting_review" state used for past confirmed
-  // bookings. The server's free_reward_balance() counts real completions only,
-  // so deriving from elapsed time here would show the
-  // "use a free session" toggle for a reward the server rejects/charges.
   const now = Date.now();
-  const goodBookings = bookings.filter(
-    (b) => b.status === 'completed' && b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
-  ).length;
+  const goodBookings = bookings.filter((b) => countsTowardFreeSession(b, now)).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   // Redemption is derived from bookings flagged as free (cancelled ones refund automatically).
   const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;
@@ -161,11 +175,8 @@ export function computeLoyaltyFromTransactions(
     ? Math.min(1, (points - tier.min) / (nextTier.min - tier.min))
     : 1;
 
-  // Real admin completions only (see computeLoyalty for the rationale).
   const now = Date.now();
-  const goodBookings = bookings.filter(
-    (b) => b.status === 'completed' && b.completedAt != null && !b.noShow && !b.isFreeReward && new Date(b.endTime).getTime() <= now,
-  ).length;
+  const goodBookings = bookings.filter((b) => countsTowardFreeSession(b, now)).length;
   const earnedFree = Math.floor(goodBookings / GOOD_BOOKINGS_PER_FREE);
   const redeemedFree = bookings.filter((b) => b.isFreeReward && b.status !== 'cancelled').length;
   const availableFree = Math.max(0, earnedFree - redeemedFree);

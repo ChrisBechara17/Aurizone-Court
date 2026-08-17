@@ -48,7 +48,6 @@ import { useRequireAdminMfa } from '@/hooks/useRequireAdminMfa';
 import { AdminMfaGateLoading } from '@/components/admin/AdminMfaGateLoading';
 import { secureWritesEnabled } from '@/services/secureFunctionService';
 import { bookingDisplayState } from '@/utils/bookingLifecycle';
-import * as Sentry from '@sentry/react-native';
 
 type AdminTab = 'overview' | 'schedule' | 'bookings' | 'pricing' | 'coaches' | 'rules' | 'users' | 'audit' | 'health';
 type AdminGroup = 'operations' | 'business' | 'people' | 'system';
@@ -108,7 +107,6 @@ const inputStyleFor = () =>
 export default function AdminScreen() {
   const { contentBottomPadding } = useBottomNavigationMetrics();
   const ADMIN = COLORS.warning;
-  const sentryProjectId = process.env.EXPO_PUBLIC_SENTRY_DSN?.split('/').filter(Boolean).at(-1);
   const inputStyle = inputStyleFor();
   const router = useRouter();
   const user = useAppStore((s) => s.user);
@@ -184,8 +182,6 @@ export default function AdminScreen() {
   const [revenueRange, setRevenueRange] = useState<RevenueRange>('today');
   const [refreshing, setRefreshing] = useState(false);
   const [adminRefreshErr, setAdminRefreshErr] = useState<string | null>(null);
-  const [testingSentry, setTestingSentry] = useState(false);
-  const [sentryTestResult, setSentryTestResult] = useState<string | null>(null);
   const [exportErr, setExportErr] = useState<string | null>(null);
 
   // Bookings day filter
@@ -1685,11 +1681,6 @@ export default function AdminScreen() {
               <HealthRow label="Admin MFA" value="AAL2 verified" good={mfaState === 'verified'} />
               <HealthRow label="Security events" value={securityEvents.length ? `${securityEvents.length} recent` : 'None'} good />
               <HealthRow
-                label="Crash monitoring"
-                value={sentryProjectId ? `Project ${sentryProjectId}` : 'Disabled'}
-                good={!!process.env.EXPO_PUBLIC_SENTRY_DSN}
-              />
-              <HealthRow
                 label="SQL migrations"
                 value={`${REQUIRED_MIGRATIONS.filter((m) => schemaMigrations.some((row) => row.key === m.key)).length}/${REQUIRED_MIGRATIONS.length} tracked`}
                 good={REQUIRED_MIGRATIONS.every((m) => schemaMigrations.some((row) => row.key === m.key))}
@@ -1717,42 +1708,6 @@ export default function AdminScreen() {
                   {refreshing ? 'Refreshing...' : 'Refresh Now'}
                 </Text>
               </Pressable>
-              {__DEV__ && (
-                <>
-                  <Pressable
-                    onPress={async () => {
-                      if (!process.env.EXPO_PUBLIC_SENTRY_DSN || testingSentry) return;
-                      setTestingSentry(true);
-                      setSentryTestResult(null);
-                      const eventId = Sentry.captureMessage('RizeON mobile SDK test', 'error');
-                      const sent = await Sentry.flush();
-                      setSentryTestResult(sent ? `Test sent: ${eventId}` : `Test timed out: ${eventId}`);
-                      setTestingSentry(false);
-                    }}
-                    disabled={!process.env.EXPO_PUBLIC_SENTRY_DSN || testingSentry}
-                    style={({ pressed }) => ({
-                      opacity: pressed || testingSentry || !process.env.EXPO_PUBLIC_SENTRY_DSN ? 0.55 : 1,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      paddingVertical: 13,
-                      borderRadius: 14,
-                      backgroundColor: `${ADMIN}1f`,
-                      borderWidth: 1,
-                      borderColor: `${ADMIN}66`,
-                    })}
-                  >
-                    <Activity size={16} color={ADMIN} />
-                    <Text style={{ color: ADMIN, fontWeight: '900', fontSize: 14 }}>
-                      {testingSentry ? 'Sending Test...' : 'Test Crash Monitoring'}
-                    </Text>
-                  </Pressable>
-                  {!!sentryTestResult && (
-                    <Text style={{ color: COLORS.textMuted, textAlign: 'center', fontSize: 12 }}>{sentryTestResult}</Text>
-                  )}
-                </>
-              )}
             </View>
           </GlassCard>
           <GlassCard>
