@@ -46,7 +46,7 @@ export default function HomeScreen() {
 
   const upcoming = bookings
     // eslint-disable-next-line react-hooks/purity -- current-time read to filter upcoming bookings; re-reads each render as intended
-    .filter((b) => b.status === 'confirmed' && parseISO(b.endTime).getTime() > Date.now())
+    .filter((b) => b.status === 'confirmed' && !b.noShow && parseISO(b.endTime).getTime() > Date.now())
     .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
   // Show the next few upcoming bookings, not just one.
   const nextBookings = upcoming.slice(0, 3);

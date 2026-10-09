@@ -10,7 +10,7 @@ import { COLORS } from '@/constants/colors';
 import { useAppStore, useThemeName } from '@/store/useAppStore';
 import { parseISO } from 'date-fns';
 import { useBottomNavigationMetrics } from '@/hooks/useBottomNavigationMetrics';
-import { bookingDisplayState } from '@/utils/bookingLifecycle';
+import { bookingDisplayState, bookingHasStarted } from '@/utils/bookingLifecycle';
 
 type Filter = 'upcoming' | 'past' | 'cancelled';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -45,9 +45,11 @@ export default function BookingsScreen() {
     const sorted = [...bookings].sort(
       (a, b) => parseISO(b.startTime).getTime() - parseISO(a.startTime).getTime(),
     );
+    // Upcoming keeps a session until it ends, so an in-progress booking stays
+    // visible instead of falling between Upcoming (not started) and Past (ended).
     if (filter === 'upcoming')
       return sorted
-        .filter((b) => b.status === 'confirmed' && !b.noShow && parseISO(b.startTime).getTime() > now)
+        .filter((b) => bookingDisplayState(b, now) === 'confirmed')
         .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
     if (filter === 'past') {
       return sorted.filter(
@@ -121,7 +123,7 @@ export default function BookingsScreen() {
                     show a "Call to cancel" action pointing at the front desk. */}
                 <BookingCard
                   booking={b}
-                  cancelContactPhone={filter === 'upcoming' ? supportPhone : undefined}
+                  cancelContactPhone={filter === 'upcoming' && !bookingHasStarted(b, now) ? supportPhone : undefined}
                   onPress={() => router.push(`/booking-detail?id=${b.id}`)}
                 />
               </Animated.View>
