@@ -2,6 +2,8 @@
 module.exports = {
   content: ['./src/**/*.{js,jsx,ts,tsx}'],
   presets: [require('nativewind/preset')],
+  // Web: NativeWind throws if the <html> class changes while dark mode is 'media'.
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
